@@ -11,6 +11,7 @@ PYTHONPATH = "$PIXI_PROJECT_ROOT/src"
 
 [tasks]
 ingest = "python -m tm_ml.ingest"
+test = "pytest tests/"
 
 [dependencies]
 python = "3.13.*"
@@ -20,6 +21,7 @@ scipy = ">=1.18.0,<2"
 matplotlib = ">=3.11.0,<4"
 pyyaml = ">=6.0,<7"
 snakemake-minimal = ">=9.23.1,<10"
+pytest = ">=8.3,<9"
 
 [feature.ml]
 platforms = ["linux-64-cuda"]
