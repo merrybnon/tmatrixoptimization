@@ -4,13 +4,11 @@ __pycache__/
 .snakemake/
 *.egg-info/
 
-# Ingested data and run output are produced, never committed. The .gitkeep
-# exceptions keep the directory layout visible in a fresh clone.
+# Raw drops are committed, so a clone carries the exact data a run trained on.
+# Processed arrays and run output are derived and regenerable, so they are not.
 data/*
 !data/raw/
 !data/processed/
-data/raw/*
-!data/raw/.gitkeep
 data/processed/*
 !data/processed/.gitkeep
 results/*
