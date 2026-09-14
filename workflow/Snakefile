@@ -1,0 +1,42 @@
+"""Pipeline entry point. Currently: raw drop -> processed arrays.
+
+    pixi run -e ml pipeline -c1
+    pixi run -e ml pipeline -c1 -n        # dry run, shows what would be built
+
+Every drop directory under ``data/raw/`` is a target, so adding a drop and
+re-running ingests it and leaves the others alone. The raw ``.npz`` is a
+committed file, so Snakemake's mtime tracking works the usual way: touch a
+drop and only that drop rebuilds.
+
+``tm_ml`` imports directly because pixi puts ``src/`` on PYTHONPATH.
+"""
+
+from tm_ml.ingest import RAW_DIR, find_source
+
+DROPS = sorted(p.name for p in RAW_DIR.iterdir() if p.is_dir())
+
+
+# Without this a drop name would span slashes and swallow the rest of the path.
+wildcard_constraints:
+    drop=r"[^/]+",
+
+
+rule all:
+    input:
+        expand("data/processed/{drop}/meta.json", drop=DROPS),
+
+
+def raw_source(wildcards):
+    """The drop's single .npz, found the same way ingest itself finds it."""
+    return str(find_source(wildcards.drop))
+
+
+rule ingest:
+    input:
+        raw_source,
+    output:
+        matrices="data/processed/{drop}/matrices.npy",
+        targets="data/processed/{drop}/targets.npy",
+        meta="data/processed/{drop}/meta.json",
+    shell:
+        "python -m tm_ml.ingest --drop {wildcards.drop}"
