@@ -10,6 +10,8 @@ To understand why a transformer encoder and a graph neural network are the same 
 
 **Jin et al., *Junction Tree Variational Autoencoder for Molecular Graph Generation*, ICML 2018.** The follow-up that exists because the 2018 decoder often emitted invalid molecules, so latent optimization drifted into regions that decoded to nothing. Its fix is to make validity structural rather than penalized. Masked row softmax is the same move for us, and the failure mode it avoids is worth knowing about.
 
+**Liu et al., *Constrained Graph Variational Autoencoders for Molecule Design*, NeurIPS 2018.** Same lineage as the above: enforce validity during decoding rather than penalising invalidity afterwards. Read alongside Jin et al. for two different takes on the same principle.
+
 ## Message passing
 
 **Gilmer et al., *Neural Message Passing for Quantum Chemistry*, ICML 2017.** Unifies earlier graph networks into one skeleton: each node collects messages from its neighbours, sums them, and updates its own state from the sum. Every layer in `architecture.md` is an instance of this. The sum is what makes the whole thing permutation-equivariant.
@@ -45,6 +47,10 @@ To understand why a transformer encoder and a graph neural network are the same 
 **Kipf & Welling, *Variational Graph Auto-Encoders*, 2016.** One latent vector per node, edges reconstructed from pairs of node latents. The structure we use, except with a learned asymmetric pair function instead of their symmetric inner product, since our matrices are directed.
 
 **Simonovsky & Komodakis, *GraphVAE: Towards Generation of Small Graphs Using Variational Autoencoders*, ICANN 2018.** The alternative we rejected: a single graph-level latent, which forces approximate graph matching to make reconstruction loss well-posed against an arbitrary node ordering. Worth reading to understand the problem node-level latents sidestep.
+
+**Salha et al., *Gravity-Inspired Graph Autoencoders for Directed Link Prediction*, CIKM 2019.** arXiv 1905.09570, code at github.com/deezer/gravity_graph_autoencoders. The closest published solution to our decoder problem: Kipf & Welling's symmetric inner product cannot represent directed edges, so this gives each node a position plus a learned scalar mass and scores edges with a gravity-like potential, asymmetric by construction. A more structured alternative to `MLP([z_i ; z_j])` with far fewer parameters, which matters on 1000 examples. Worth benchmarking against ours.
+
+**Williams et al., *Scalable Generative Modeling of Weighted Graphs*, 2025.** arXiv 2507.23111. Current state of weighted-graph generation, and confirms that essentially all deep graph generative models handle topology while ignoring edge weights or bolting them on naively. Their hard problem — jointly modelling which edges exist and how strong they are — is not ours, since our topology is fixed at complete-minus-diagonal for every sample and only the weights vary. Worth saying so explicitly in any write-up, or readers from this community will assume we face it. Their model is autoregressive and sparsity-exploiting, so a poor fit besides: autoregressive generation destroys permutation equivariance and leaves no single latent to optimise in.
 
 ## Invariance and sets
 
