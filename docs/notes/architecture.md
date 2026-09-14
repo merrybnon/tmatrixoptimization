@@ -80,6 +80,24 @@ Gotcha: forward KL weights each term by the true T_ij, so it punishes T̂ being 
 
 Unlike the binary landscapes in hotspotLandscapes, there is no entropy floor on the neg-ELBO here: the data is continuous on a 360-dimensional manifold, and a continuous density can be arbitrarily peaked, so the reconstruction term is unbounded below.
 
+## The zero diagonal: constraint in one place, NaN in four
+
+The constraint itself needs exactly one step. Set the diagonal logits to −inf *before* the row softmax and T̂_ii is exactly 0 with the other 19 entries summing to exactly 1, and the diagonal logit receives exactly zero gradient so no capacity is spent on it. Order matters absolutely: mask then normalize. Softmaxing over all 20 and zeroing the diagonal afterwards leaves rows summing to less than 1 and silently breaks the constraint.
+
+Nothing earlier in the architecture needs to enforce it. But a structural zero is a numerical landmine, and it detonates in four other places, all as NaN rather than as a violated constraint:
+
+Key parameters:
+- Reconstruction loss: per-row KL contains T_ij · log T̂_ij, which at j = i is 0 · log(0) — zero by convention, `nan` in floating point. Sum over off-diagonal entries only, or add an epsilon inside the log. This poisons training on step one if missed
+- Input edge features: `log T_ii` is `log(0) = -inf`. Use an explicit binary is-self-pair flag plus a clamped log, rather than an epsilon alone — the flag says "structurally special" where an epsilon says "probability 1e-12", which is a lie the network may try to interpret
+- Attention bias: b_ii derives from e_ii, so garbage edge features collapse the softmax. Fixed once the edge features are, but verify rather than assume
+- Node features: row and column entropies hit the same 0 · log 0; compute them over off-diagonal entries
+
+The principle is to enforce the hard constraint at the last possible step and handle its numerical consequences everywhere. Those are separate concerns and easy to conflate.
+
+Assert rather than trust: check that T̂ has a zero diagonal and rows summing to 1, and that the loss is finite, for the first few steps of any run. The failure mode is silent NaN propagation.
+
+Rejected variant: emitting only the 19 off-diagonal entries per row, so the diagonal never exists. Marginally cleaner, buys nothing numerically over masking, and costs index bookkeeping in every tensor downstream.
+
 ## Sources
 
 The scheme as a whole — VAE plus jointly trained property predictor, then gradient ascent in latent space — is Gómez-Bombarelli et al., *Automatic Chemical Design Using a Data-Driven Continuous Representation of Molecules*, ACS Central Science 4(2), 2018. Jin et al., *Junction Tree Variational Autoencoder for Molecular Graph Generation*, ICML 2018, is the follow-up that makes decoded objects valid by construction rather than valid by penalty, which is the same motivation as the masked row softmax here.

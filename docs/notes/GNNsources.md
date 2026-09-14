@@ -2,6 +2,8 @@
 
 Reading list behind `architecture.md`. Titles and venues are from memory — verify before citing in a manuscript.
 
+To understand why a transformer encoder and a graph neural network are the same thing for our case, read Joshi first, then Veličković, then Dwivedi & Bresson, then Graphormer for the bias mechanism specifically. If you read only one, read Joshi.
+
 ## The scheme we are copying
 
 **Gómez-Bombarelli et al., *Automatic Chemical Design Using a Data-Driven Continuous Representation of Molecules*, ACS Central Science 4(2), 2018.** The paper `project_vision.md` is based on. A VAE maps molecules to a continuous latent space, an MLP trained jointly on that latent predicts a property, and gradient ascent on the MLP's output moves through latent space toward better molecules, which are then decoded. Our substitution is transition matrices for molecules and a heterozygosity decay exponent for the chemical property.
@@ -20,9 +22,13 @@ Reading list behind `architecture.md`. Titles and venues are from memory — ver
 
 **Xu et al., *How Powerful are Graph Neural Networks?*, ICLR 2019.** Proves sum aggregation is strictly more expressive than mean or max, because averaging discards how many neighbours sent a message. Does not bite for us — every node has exactly 19 neighbours — but explains why sum is the default elsewhere.
 
-**Li et al., *DeepGCNs: Can GCNs Go as Deep as CNNs?*, ICCV 2019.** Residual connections and normalization for deep GNNs. Why the encoder line adds to `h_i` instead of replacing it.
+**He et al., *Deep Residual Learning for Image Recognition*, CVPR 2016.** Residual connections: a layer computes a correction to its input rather than a replacement, so depth stops degrading accuracy and a layer can default to passing information through unchanged. Every `h_i ← h_i + ...` in the architecture.
+
+**Li et al., *DeepGCNs: Can GCNs Go as Deep as CNNs?*, ICCV 2019.** Carries residual connections and normalization over to deep GNNs specifically.
 
 ## Attention
+
+**Joshi, *Transformers are Graph Neural Networks*, The Gradient, 2020.** The starting point, and an article rather than a paper. Argues that a transformer is a GNN with attentional aggregation running on a fully connected graph — the sentence is the graph and the words are the nodes, and since any word can attend to any other, the graph is complete. That is our situation with 20 nodes in place of words, which is why a plain transformer encoder is a legitimate implementation of the architecture.
 
 **Vaswani et al., *Attention Is All You Need*, NeurIPS 2017.** The transformer. Each token computes a query, every token offers a key and a value, and a token's output is a weighted average of values with weights from query-key similarity. On a complete graph this is exactly message passing with learned weights, which is why a plain transformer encoder is a legitimate implementation of our architecture.
 
