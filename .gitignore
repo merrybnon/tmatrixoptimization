@@ -1,0 +1,17 @@
+__pycache__/
+*.py[cod]
+.pixi/
+.snakemake/
+*.egg-info/
+
+# Ingested data and run output are produced, never committed. The .gitkeep
+# exceptions keep the directory layout visible in a fresh clone.
+data/*
+!data/raw/
+!data/processed/
+data/raw/*
+!data/raw/.gitkeep
+data/processed/*
+!data/processed/.gitkeep
+results/*
+!results/.gitkeep
