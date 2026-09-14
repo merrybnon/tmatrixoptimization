@@ -2,6 +2,8 @@
 
 Design note for the transition-matrix VAE. Follows the scheme in `project_vision.md`: encode a landscape into a continuous latent space, predict its diversity from that latent jointly with training, then do gradient-based optimization in the latent space and decode the result.
 
+Stated without reference to landscapes, the problem is **inverse design of Markov chains for a target dynamical property**. Landscapes are the motivating application, but nothing in the architecture depends on that reading.
+
 ## What the data forces
 
 Measured on `data/processed/Tom1000` (1000 matrices, 20×20):
