@@ -1,0 +1,39 @@
+[workspace]
+authors = ["merrybnon <hudsonlazzara@me.com>"]
+channels = ["conda-forge", "bioconda"]
+name = "tmatrixoptimization"
+platforms = ["linux-64", {name = "linux-64-cuda", platform = "linux-64", cuda = "12"}]
+version = "0.1.0"
+
+[activation.env]
+TMPDIR = "$HOME/tmp"
+PYTHONPATH = "$PIXI_PROJECT_ROOT/src"
+
+[tasks]
+ingest = "python -m tm_ml.ingest"
+
+[dependencies]
+python = "3.13.*"
+numpy = ">=2.5.0,<3"
+pandas = ">=3.0.3,<4"
+scipy = ">=1.18.0,<2"
+matplotlib = ">=3.11.0,<4"
+pyyaml = ">=6.0,<7"
+snakemake-minimal = ">=9.23.1,<10"
+
+[feature.ml]
+platforms = ["linux-64-cuda"]
+
+[feature.ml.tasks]
+train = "python -m tm_ml.train"
+evaluate = "python -m tm_ml.evaluate"
+visualize = "python -m tm_ml.visualize"
+benchmarks = "python -m tm_ml.benchmarks"
+pipeline = "snakemake --snakefile workflow/Snakefile"
+
+[feature.ml.dependencies]
+pytorch = { version = ">=2.5,<3", build = "cuda*" }
+scikit-learn = ">=1.5,<2"
+
+[environments]
+ml = ["ml"]

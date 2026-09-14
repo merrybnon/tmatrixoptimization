@@ -8,7 +8,7 @@ Machine learning on Markov transition matrices: generative models of the matrice
 
 ## Python Setup
 
-Python dependencies are managed with pixi. Python commands should be run with pixi run python.
+Python dependencies are managed with pixi. Python commands should be run with pixi run python. Anything touching pytorch needs the ml environment, so use pixi run -e ml train, pixi run -e ml pipeline, and so on.
 
 ## Repository Structure
 
