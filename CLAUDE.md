@@ -2,13 +2,13 @@
 
 ## Project Overview
 
-Machine learning on Markov transition matrices: generative models of the matrices themselves and predictive models mapping a matrix to the dynamics it produces. Data comes from outside the repo and is frozen by an ingest stage before any training reads it.
+Machine learning on Markov transition matrices: generative models of the matrices themselves and predictive models mapping a matrix to the dynamics it produces.
 
 `WORKLOG.md` has session history and findings, `CHANGELOG.md` records what changed when.
 
 ## Python Setup
 
-Python dependencies are managed with pixi. Python commands should be run with pixi run python; the ML environment needs `-e ml`.
+Python dependencies are managed with pixi. Python commands should be run with pixi run python.
 
 ## Repository Structure
 
