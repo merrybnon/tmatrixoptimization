@@ -52,6 +52,36 @@ To understand why a transformer encoder and a graph neural network are the same 
 
 **Williams et al., *Scalable Generative Modeling of Weighted Graphs*, 2025.** arXiv 2507.23111. Current state of weighted-graph generation, and confirms that essentially all deep graph generative models handle topology while ignoring edge weights or bolting them on naively. Their hard problem — jointly modelling which edges exist and how strong they are — is not ours, since our topology is fixed at complete-minus-diagonal for every sample and only the weights vary. Worth saying so explicitly in any write-up, or readers from this community will assume we face it. Their model is autoregressive and sparsity-exploiting, so a poor fit besides: autoregressive generation destroys permutation equivariance and leaves no single latent to optimise in.
 
+## Permutation handling
+
+The central design axis of graph generative modelling, and the one our architecture is a position on. Node labels are arbitrary, so a decoder emitting a specific matrix from an order-free latent has no way to know which of the n! orderings to produce, and element-wise reconstruction loss is ill-posed. Five families of answer:
+
+| family | latent | how permutation is handled | when used |
+|---|---|---|---|
+| graph matching | graph-level vector | align output to input before scoring | tiny graphs, largely abandoned |
+| node-level latents | set of node vectors | equivariance makes the loss well-posed | link prediction, reconstruction fidelity — **ours** |
+| learned alignment | graph-level vector | a module learns the alignment | when a single vector is required |
+| autoregressive | none | fix or learn a node ordering | large sparse graphs |
+| diffusion | none | equivariant net, invariant denoising loss | current best sample quality |
+
+**Winter et al., *Permutation-Invariant Variational Autoencoder for Graph-Level Representation Learning* (PIGVAE), NeurIPS 2021.** arXiv 2104.09856. The strongest alternative to our design, and the one to read if the set-structured latent ever obstructs us. Gets a genuine graph-level latent vector without imposing an ordering or running expensive matching: a separate permuter module predicts a permutation matrix aligning output node order to input, trained through a continuous relaxation of argsort plus an entropy regulariser pushing toward a hard permutation. Better fit for the project's stated goal of a single flat vector, at the cost of much more machinery and a learned component that can fail to converge — when the alignment is wrong the reconstruction gradient is meaningless. Candidate for v2, not v1.
+
+**GraViti: Graph-Level Variational Autoencoders with Relaxed Permutation Invariance, 2026.** arXiv 2605.16668. The recent transformer-based descendant of the above, targeting graph-level latents and state-of-the-art reconstruction.
+
+**Graph Embedding VAE: A Permutation Invariant Model of Graph Structure, 2019.** arXiv 1910.08057. Earlier attempt in the same direction.
+
+**You et al., *GraphRNN*, ICML 2018** and **Liao et al., *GRAN*, NeurIPS 2019.** Build graphs node by node, handling permutation by training over BFS orderings rather than all n!. Not for us — autoregressive generation leaves no single latent to optimise in, and our graph is dense and fixed-size, where these are weakest.
+
+**Chen et al., *Order Matters: Probabilistic Modeling of Node Sequence for Graph Generation*, ICML 2021.** First to *learn* the node ordering rather than fixing it, reporting better results than BFS or DFS. The clearest statement of why prefixed orderings are a liability.
+
+**Zhang et al., *Pard: Permutation-Invariant Autoregressive Diffusion for Graph Generation*, NeurIPS 2024.** arXiv 2402.03687. Reconciles autoregressive generation with permutation invariance by routing it through diffusion.
+
+**Vignac et al., *DiGress: Discrete Denoising Diffusion for Graph Generation*, ICLR 2023.** arXiv 2209.14734. Current state of the art for graph generation quality: a graph transformer trained to reverse a discrete noising process, permutation-equivariant with a permutation-invariant loss, so nothing to match and no ordering to pick. Not usable for us despite that — diffusion models have no encoder, so there is no latent space to encode a real landscape into and ascend a gradient in. Revisit only if sample quality rather than optimisation becomes the bottleneck.
+
+**Niu et al., *Permutation Invariant Graph Generation via Score-Based Generative Modeling*, AISTATS 2020** and **Jo et al., *GDSS*, ICML 2022.** The score-based line DiGress improves on.
+
+Note that nearly all of this literature is about generating *topology* — which edges exist. Ours is fixed at complete-minus-diagonal for every sample and only the weights vary, which removes the combinatorial core: no discrete edge decisions, no variable node counts, no sparsity structure. Worth stating explicitly in a write-up, or readers from this field will assume we face the hard version and wonder why we are not using DiGress.
+
 ## Invariance and sets
 
 **Zaheer et al., *Deep Sets*, NeurIPS 2017.** Characterizes functions on sets: any permutation-invariant function can be written as a pooling of per-element encodings. Justifies the predictor's pool-then-MLP shape.
