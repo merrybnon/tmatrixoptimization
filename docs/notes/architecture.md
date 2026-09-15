@@ -34,6 +34,16 @@ Node labels are arbitrary: relabelling states gives the same landscape and the s
 
 Element-wise reconstruction loss is then well-posed with no canonicalization and no graph matching. One consequence: permutation augmentation becomes a no-op, since a permuted example produces an identically permuted output and the same loss.
 
+The consequence that the optimization actually rests on is one step further out. The predictor is invariant, so ŷ(PZ) = ŷ(Z) for every permutation matrix P; differentiating both sides and using that P is orthogonal gives
+
+```
+∇ŷ|_(PZ)  =  P · ∇ŷ|_Z
+```
+
+The gradient field is itself equivariant, so **latent gradient ascent commutes with relabelling**: ascending from a relabelled start returns the relabelling of the original result, the same landscape with different names on its nodes. Nothing downstream of the encoder can depend on how the input happened to be labelled.
+
+Check it rather than assume it — encode T, ascend k steps, decode; encode PTPᵀ, ascend k steps, decode; assert the two agree up to P. Run it with sampling off, using μ: equivariance of a *sampled* z holds only in distribution, since ε is drawn independently per node, so a single sample from the permuted input is not the permutation of a single sample from the original.
+
 ## The model
 
 ```

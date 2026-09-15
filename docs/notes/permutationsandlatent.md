@@ -7,3 +7,96 @@ Now, to the problem of the latent space representation. Let's say we're sticking
 Can we have a single latent representation represent all of the permutation options? I think we would need to.
 
 Side note, we need to make sure that the thing we are turning into the latent representation doesn't easily have a way to do optimization on it without the latent representation. This is something I need to wrap my head around more.
+
+## Claude's Plan
+
+Written 2026-09-15, working through the note above. Short version: the reasoning above is right, the design stays as it is, and the two questions left open at the end both have answers.
+
+### The action, and the two conditions
+
+A relabelling π acts differently on different objects, and most confusion here comes from conflating those actions:
+
+```
+transition matrix    T (20x20)    ↦  P T Pᵀ      both axes are node axes
+node features        N (20x5)     ↦  P N         one node axis
+edge features        E (20x20x4)  ↦  permute axes 0 and 1
+hidden states        H (20xh)     ↦  P H
+latent               Z (20xd)     ↦  P Z
+target               y (scalar)   ↦  y           no node axis, nothing to act on
+```
+
+```
+equivariant:  f(P·x) = P·f(x)     carries the relabelling through
+invariant:    f(P·x) =   f(x)     does not notice it
+```
+
+Invariance is the special case where the output has no node axis. So a graph-level latent does not "destroy equivariance" as the note above puts it — it makes the encoder *invariant*, which is the stronger condition, and the damage it does is entirely downstream in the decoder.
+
+### A worked 3-node example
+
+```
+T                             T' = P T Pᵀ,  π swaps labels 2 and 3
+      to 1    2    3                to 1    2    3
+1  [   0    0.7  0.3 ]         1  [   0    0.3  0.7 ]
+2  [  0.4    0   0.6 ]         2  [  0.5    0   0.5 ]
+3  [  0.5   0.5   0  ]         3  [  0.4   0.6   0  ]
+```
+
+The same graph twice. Row 2 of T' is old node 3's outflows rewritten in the new labels; both matrices are row-stochastic with a zero diagonal, and nothing about the object changed, only the names.
+
+Column sums go [0.9, 1.2, 0.9] ↦ [0.9, 0.9, 1.2] — permuted identically, which is equivariance on a node feature, and they hold an exact tie between nodes 1 and 3, which is what canonicalization has to break arbitrarily.
+
+### Where each piece sits
+
+| piece | condition | why |
+|---|---|---|
+| node features n_i | equivariant | each entry reduces over the *other* index with a sum, entropy or max, all order-agnostic, so n_i is a property of node i alone |
+| edge features e_ij | equivariant | a function of the ordered pair (i, j) only |
+| encoder layer | equivariant | the Σ_j discards the order of the neighbours while the per-i structure keeps the node axis |
+| μ_i, log σ_i | equivariant | computed from h_i pointwise |
+| sampled z_i | equivariant *in distribution* | ε is drawn independently per node, so a single sample is not literally permuted |
+| decoder logits | equivariant | MLP of an ordered pair; the masked diagonal is a permutation-stable set; softmax commutes with permuting its inputs |
+| reconstruction loss | **invariant** | Σ_i KL(T_i ‖ T̂_i) is a sum of the same terms in a different order |
+| prior KL | **invariant** | Σ_i over nodes — this needs the factorized, identical-per-node prior, which is doing quiet work |
+| predictor | **invariant** | pooling over i |
+
+The forbidden node feature makes the distinction concrete. Feed node i its raw row T[i,:] and for the 3-node example node 1's "feature" is [0, 0.7, 0.3] before relabelling and [0, 0.3, 0.7] after — but node 1 was never touched, it is the same node with the same outflows to the same physical destinations. The vector changed because its *entries* are indexed by j. That makes it a function of the node **and the labelling**, which lets the network read the labels off its inputs and kills equivariance at layer zero.
+
+### Equivariant reconstruction, invariant loss
+
+Invariant reconstruction, which the note above reaches for, cannot exist: the decoder has to emit an actual 20x20 array and every array has some labelling. What can be invariant is the **loss**, and it is, for free:
+
+```
+L_rec( P T Pᵀ , P T̂ Pᵀ )  =  L_rec( T , T̂ )
+```
+
+because the outer sum runs over the same 20 terms in a different order and each inner KL over the same 20 entries in a different order. This is the whole point of the equivariant route. Input node i enters at slot i, its latent is at slot i, its reconstructed row leaves at slot i — the correct alignment is the identity for every input, by construction, so there is never anything to match.
+
+With a graph-level latent, T and PTPᵀ both encode to the same z and therefore both decode to the same D(z), which at most one of them can equal. The element-wise loss then depends on which labelling went in, and the network is being punished for failing to reproduce information that pooling provably destroyed. The two escapes are the two families in the taxonomy: minimize the loss over permutations (graph matching), or predict the aligning permutation (PIGVAE). The useful way to see PIGVAE is that it does not put the ordering *into* the latent, it routes the ordering *around* it — a separate permuter carries the alignment alongside an invariant z, which is exactly why the latent stays clean, and exactly why the permuter has to be right.
+
+Small correction to the note above: a rank swap under column-sum sorting is a row swap *and* a column swap, since the canonical form is the full conjugation PTPᵀ. Both of the node's outflows and its inflows move, which is why the measured amplification is as large as it is. Also worth noticing that the 3-node example has column sums [0.9, 1.2, 0.9] — an exact tie, where sorting has no defined answer at all.
+
+### "Can a single latent represent all the permutation options?"
+
+Yes, and we already have it — the object that represents the graph is the **set** {z_1, ..., z_20}, equivalently the orbit {PZ : P ∈ S_20}. All 20! labellings of one graph map to the 20! orderings of one set of vectors. The set is invariant and only the write-down order varies.
+
+The array Z is just a choice of how to write that set down, so the real question is whether anything downstream depends on the choice:
+
+- **Single-matrix gradient ascent does not, provably.** ŷ is invariant, so the gradient field is equivariant and ascent commutes with relabelling — see the derivation now in `architecture.md`, along with the check to run. This is the operation the project is for, and it is safe.
+- **Anything combining two latents does.** Interpolating Z_A and Z_B element-wise adds z_A,1 to z_B,1, and slot 1 means unrelated nodes in the two encodings, hence Hungarian alignment first. Prior sampling draws 20 iid vectors and so produces a set with no inter-node correlation at all, which is the weak point for the generative half of the goal rather than the optimization half.
+
+So the set-structured latent does represent all permutations correctly, and the ordering leaks only into operations that combine two different graphs.
+
+### The side note, on optimizing without the latent
+
+The worry is well placed, and the answer is that you *can*: parameterize a matrix by free logits, apply the masked row softmax, train a predictor directly on T, ascend the logits. Every constraint holds and no VAE is involved.
+
+What it should do is find adversarial matrices. The predictor is only accurate near the data it saw, and with 360 free dimensions nothing confines ascent to that region, so it will find inputs that maximize the predicted exponent while looking nothing like a real landscape. The latent's job is precisely that confinement — fewer dimensions than the data has, regularized toward a prior the encoder mapped real data into, with the decoder projecting back onto something plausible. That is the actual argument for the Gómez-Bombarelli scheme, and the direct baseline is the cleanest way to demonstrate it rather than assert it. If direct ascent turns out *not* to go adversarial, that is important information about how easy the problem is.
+
+### Plan
+
+1. Keep node-level latents. GE-VAE (arXiv 1910.08057) turns out to be the same choice reached independently — see `GNNsources.md`.
+2. Finish `models.py` and commit it.
+3. Add the ascent-equivariance check alongside the existing equivariance tests, run with sampling off.
+4. PIGVAE stays the v2 candidate, and the trigger is specific: needing interpolation between landscapes or prior sampling to work well. Not disappointing reconstruction or disappointing single-point ascent — those are β, γ and d.
+5. Later, the no-VAE direct-ascent baseline, for the worklog next steps rather than now.
