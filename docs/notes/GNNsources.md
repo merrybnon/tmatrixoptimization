@@ -4,6 +4,10 @@ Reading list behind `architecture.md`. Titles and venues are from memory — ver
 
 To understand why a transformer encoder and a graph neural network are the same thing for our case, read Joshi first, then Veličković, then Dwivedi & Bresson, then Graphormer for the bias mechanism specifically. If you read only one, read Joshi.
 
+## Background
+
+**Hamilton, *Graph Representation Learning Book*, 2020.** Free at cs.mcgill.ca/~wlh/grl_book/. The textbook for this field and the best basic-level treatment on the list — node embeddings, the message-passing framework, expressiveness, then generative models of graphs. Dip into chapters as needed rather than reading front to back. Everything else in this file is a paper arguing with other papers; this is the one source written for someone starting from nothing.
+
 ## The scheme we are copying
 
 **Gómez-Bombarelli et al., *Automatic Chemical Design Using a Data-Driven Continuous Representation of Molecules*, ACS Central Science 4(2), 2018.** The paper `project_vision.md` is based on. A VAE maps molecules to a continuous latent space, an MLP trained jointly on that latent predicts a property, and gradient ascent on the MLP's output moves through latent space toward better molecules, which are then decoded. Our substitution is transition matrices for molecules and a heterozygosity decay exponent for the chemical property.
@@ -13,6 +17,8 @@ To understand why a transformer encoder and a graph neural network are the same 
 **Liu et al., *Constrained Graph Variational Autoencoders for Molecule Design*, NeurIPS 2018.** Same lineage as the above: enforce validity during decoding rather than penalising invalidity afterwards. Read alongside Jin et al. for two different takes on the same principle.
 
 ## Message passing
+
+**Kipf & Welling, *Semi-Supervised Classification with Graph Convolutional Networks*, ICLR 2017.** The canonical GCN, and how most people first meet the field — which is the reason to read it, since Veličković and Xu et al. below are both framed as responses to it. Not usable as a method here: it propagates with fixed degree-derived coefficients over a symmetric adjacency, so there is no learned per-edge weighting and no natural place for directed, multi-dimensional edge features, which is where all of our signal lives. Read it for the vocabulary, not the model.
 
 **Gilmer et al., *Neural Message Passing for Quantum Chemistry*, ICML 2017.** Unifies earlier graph networks into one skeleton: each node collects messages from its neighbours, sums them, and updates its own state from the sum. Every layer in `architecture.md` is an instance of this. The sum is what makes the whole thing permutation-equivariant.
 
