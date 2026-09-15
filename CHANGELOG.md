@@ -4,6 +4,18 @@ All notable changes to this project will be documented in this file. The format 
 
 ## [Unreleased]
 
+### Added
+
+- `docs/notes/permutationsandlatent.md`: the latent-structure decision worked through, covering the group action on each object in the architecture, a per-component equivariant/invariant ledger, why the reconstruction is equivariant while the loss is invariant (which is what makes matching unnecessary), a worked 3-node relabelling example, the orbit answer to whether one latent can represent all 20! labellings, and the hybrid graph-level latent.
+- `docs/notes/architecture.md`: ascent equivariance. The predictor is invariant, so ∇ŷ|_(PZ) = P · ∇ŷ|_Z and latent gradient ascent commutes with relabelling — an optimized landscape cannot depend on how its input happened to be labelled. Carries the test procedure, which must run with sampling off, since equivariance of a sampled z holds only in distribution.
+- `docs/notes/GNNsources.md`: a `## Reading order` section with two paths — the narrow one for why a transformer encoder and a GNN are the same thing here, and a general ten-item order into the field. Four new entries: Hamilton's *Graph Representation Learning Book* and Kipf & Welling's GCN paper, both absent and both needed for basic-level grounding; Edwards & Storkey's *Towards a Neural Statistician*, the two-level latent for exchangeable sets behind the hybrid; and Battaglia's global attribute `u`, folded into the existing entry as the mechanism that makes a broadcast invariant preserve equivariance.
+
+### Changed
+
+- `docs/notes/GNNsources.md`: the GE-VAE entry (arXiv 1910.08057) was misfiled beside PIGVAE and GraViti as though it were a graph-level method. Its latent is |V| x P, node-level, so it is the family we already chose reached independently. Rewritten with what the model actually is and the three reasons it is ruled out — a Laplacian-eigenmap encoder that reintroduces the canonicalization discontinuity in spectral form, a symmetric z_iᵀz_j that cannot represent our directed edges, and binary undirected topology whose sparse-likelihood contribution is worthless on a dense 20-node digraph.
+- `WORKLOG.md`: the next-steps block reformatted for `~/bin/nextsteps`, which parses `/^### Next steps/` and treats a blank line as the terminator. The previous `### Where we left off` heading with a separate `Next steps:` line and an intervening blank matched nothing, so the tool returned empty.
+
+
 ## [0.1.0] - 2026-09-14
 
 ### Added
