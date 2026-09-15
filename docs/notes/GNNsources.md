@@ -2,7 +2,24 @@
 
 Reading list behind `architecture.md`. Titles and venues are from memory — verify before citing in a manuscript.
 
-To understand why a transformer encoder and a graph neural network are the same thing for our case, read Joshi first, then Veličković, then Dwivedi & Bresson, then Graphormer for the bias mechanism specifically. If you read only one, read Joshi.
+## Reading order
+
+Two paths. For the narrow question of why a transformer encoder and a graph neural network are the same thing for our case: **Joshi**, then **Veličković**, then **Dwivedi & Bresson**, then **Graphormer** for the bias mechanism specifically.
+
+For a general grip on the field, the order below. Every entry is detailed in its own section further down, so this is only the sequence and the reason for it.
+
+1. **Joshi, *Transformers are Graph Neural Networks*.** An article rather than a paper, and the right first thing by a wide margin — it reaches GNNs from transformers, which we already know, and explains why our encoder is legitimately a GNN despite looking like a transformer encoder. An hour.
+2. **Gilmer et al., *Neural Message Passing*.** The unifying skeleton — gather, aggregate, update. With this frame most of the literature collapses into "a different choice of message function and aggregator." Read section 2 for the framework and skim the chemistry. Read **Hamilton's book** alongside this and after it, as the one source that assumes no background.
+3. **Veličković et al., *Graph Attention Networks***, immediately followed by **Brody et al., *GATv2***. Uniform neighbour averaging to learned neighbour weighting, then the fix that makes the attention non-static. They are a pair, and we want the GATv2 form.
+4. **Battaglia et al., *Relational inductive biases*.** The big review and the map of the territory: message passing, attention and convolution as special cases of one block. Also the source of the global attribute `u`. Read it *after* 1-3 — much harder cold, being an abstraction over instances you want to know already.
+5. **Zaheer et al., *Deep Sets*.** Short and load-bearing: any permutation-invariant function of a set is a pooling of per-element encodings. Why the predictor has the shape it does, and why an invariant graph-level latent adds no information over the node set.
+6. **Xu et al., *How Powerful are GNNs?*** First taste of expressiveness and the Weisfeiler-Lehman connection, which is the standard language for how powerful an architecture is. Its headline result does not bite for us, since node degree never varies.
+7. **Kipf & Welling, *Variational Graph Auto-Encoders*.** Three pages, and the template our design modifies. Reading it makes concrete exactly what we changed and why.
+8. **Kingma & Welling, *Auto-Encoding Variational Bayes***, with **Higgins et al., *β-VAE***. Not GNN papers, but 7 and 9 do not land without the ELBO and the reparameterization trick. The gap to close if β and γ feel like knob-twiddling rather than a principled tension.
+9. **Bronstein et al., *Geometric Deep Learning*.** Book-length, so a reference to dip into. The permutation-group and graph chapters are the payoff: architectures as consequences of the symmetries of the data, which is the argument the whole design rests on.
+10. **Maron et al., *Invariant and Equivariant Graph Networks*.** The hardest here, and the theory behind the equivariance ledger in `permutationsandlatent.md`. Skippable if the component-by-component argument there is satisfying enough.
+
+If you read only one thing, read Joshi.
 
 ## Background
 
