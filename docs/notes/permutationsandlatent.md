@@ -93,10 +93,39 @@ The worry is well placed, and the answer is that you *can*: parameterize a matri
 
 What it should do is find adversarial matrices. The predictor is only accurate near the data it saw, and with 360 free dimensions nothing confines ascent to that region, so it will find inputs that maximize the predicted exponent while looking nothing like a real landscape. The latent's job is precisely that confinement — fewer dimensions than the data has, regularized toward a prior the encoder mapped real data into, with the decoder projecting back onto something plausible. That is the actual argument for the Gómez-Bombarelli scheme, and the direct baseline is the cleanest way to demonstrate it rather than assert it. If direct ascent turns out *not* to go adversarial, that is important information about how easy the problem is.
 
+### Hybrid latent: graph-level dimensions alongside node-level ones
+
+The question is whether the latent can be a pair — an invariant z_graph ∈ ℝᵏ alongside the equivariant Z_node ∈ ℝ^(20xd) — and whether that buys anything.
+
+**It works, and equivariance is preserved trivially.** Set z_graph = pool(H), which is invariant, and broadcast it into the decoder:
+
+```
+logits_ij = MLP( [ z_i ; z_j ; z_graph ] )
+```
+
+Under a relabelling Z_node ↦ P Z_node while z_graph is unchanged, so logits'_ij = logits_(π⁻¹(i), π⁻¹(j)), which is the permuted logit matrix. The general rule: **broadcasting an invariant quantity along the node axis preserves equivariance**, because with respect to that axis it is a constant, acting like a learned bias that happens to depend on the graph. The same argument allows injecting z_graph into the encoder layers or the predictor. Ascent equivariance survives too — the gradient with respect to z_graph is invariant, with respect to Z_node is equivariant, so joint ascent still commutes with relabelling.
+
+This is the **global attribute u** of Battaglia et al., promoted from a hidden feature to a latent variable, and as a latent it is the **Neural Statistician** (Edwards & Storkey, ICLR 2017). Both are in `GNNsources.md`.
+
+**It adds no representational power.** An invariant z_graph is a deterministic function of the node set — by Deep Sets it is ρ(Σ_i φ(z_i)) — so given Z_node it carries zero additional information. Anything it could say, the model can already say by writing the same value into dimension 0 of all 20 node latents. No new functions become representable.
+
+The intuition that attention makes this unnecessary is right about the encoder, where full attention means every h_i depends on all of T after one layer. It is right about the decoder *only because of the few equivariant layers before the pair MLP*: the pair function itself is local, since logits_kl = MLP([z_k ; z_l]) does not involve z_i when i is neither k nor l, so z_i touches only row i and column i, 39 of 380 entries. The decoder's global pathway exists entirely because those pre-layers mix the latents first. A broadcast z_graph would supply that pathway by construction instead of as something depth has to recompute.
+
+**What it does add**, in increasing order of weight:
+
+- *Diagnostics.* A per-graph invariant vector to cluster, project and compare with no Hungarian alignment, and interpolation becomes partially alignment-free — z_graph interpolates cleanly while the node block still needs matching.
+- *KL efficiency.* Storing a global fact redundantly across 20 node slots costs roughly 20x the KL of storing it once globally, since the prior charges per dimension. The useful reframing: d = 8 → 9 costs 20 numbers and k = 20 global dims costs 20 numbers, so the question is not whether this adds capacity but whether capacity is better spent globally or per-node. For global facts, globally.
+- *A correlated prior.* This is the real one, and it is the fix for the weakness noted above — sampling 20 iid z_i from N(0,I) gives a set of unrelated nodes with no reason to form a coherent landscape. Draw z_graph ~ N(0, I_k) and the nodes conditioned on it, and they are independent given z_graph but correlated marginally. Standard remedy for exchangeable data, and it targets the generative half of `project_vision.md` directly.
+
+**The risk is posterior collapse on the global slot.** Since Z_node can represent everything already, the path of least resistance is to ignore z_graph and let its KL drive it to the prior — leaving the machinery and none of the benefit, looking like "it didn't help" when it was never used. Track the per-group KL as a training diagnostic from day one and reach for free bits or KL warmup on the global group if it flatlines.
+
+Note that the hybrid and PIGVAE are alternative responses to one problem. The hybrid keeps the equivariant design and fixes the prior's independence; PIGVAE replaces the design to get a genuinely single flat vector. The hybrid is far cheaper and gets most of the practical benefit, so it goes first.
+
 ### Plan
 
 1. Keep node-level latents. GE-VAE (arXiv 1910.08057) turns out to be the same choice reached independently — see `GNNsources.md`.
 2. Finish `models.py` and commit it.
 3. Add the ascent-equivariance check alongside the existing equivariance tests, run with sampling off.
 4. PIGVAE stays the v2 candidate, and the trigger is specific: needing interpolation between landscapes or prior sampling to work well. Not disappointing reconstruction or disappointing single-point ascent — those are β, γ and d.
-5. Later, the no-VAE direct-ascent baseline, for the worklog next steps rather than now.
+5. Build the hybrid-latent hook now and default it off — `d_global: int = 0` in `TMVAEConfig`, with the pooling head, the broadcast concat and the second KL group as no-ops at zero, so turning it on later is a config change rather than a refactor of the decoder signature and the loss. Turn it on when generation and prior sampling become the priority, which is the same trigger as PIGVAE, and try it first.
+6. Later, the no-VAE direct-ascent baseline, for the worklog next steps rather than now.

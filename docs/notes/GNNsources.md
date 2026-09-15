@@ -16,7 +16,7 @@ To understand why a transformer encoder and a graph neural network are the same 
 
 **Gilmer et al., *Neural Message Passing for Quantum Chemistry*, ICML 2017.** Unifies earlier graph networks into one skeleton: each node collects messages from its neighbours, sums them, and updates its own state from the sum. Every layer in `architecture.md` is an instance of this. The sum is what makes the whole thing permutation-equivariant.
 
-**Battaglia et al., *Relational inductive biases, deep learning, and graph networks*, 2018.** The general framework message passing, attention, and convolution are all special cases of. Useful as a map of the territory rather than a specific method.
+**Battaglia et al., *Relational inductive biases, deep learning, and graph networks*, 2018.** The general framework message passing, attention, and convolution are all special cases of. Useful as a map of the territory rather than a specific method. Also the source of the **global attribute** `u`: a GN block carries (V, E, u), node and edge attributes plus one graph-level attribute that aggregates over everything and is broadcast back into every node and edge update. That is the mechanism behind the hybrid latent discussed in `permutationsandlatent.md` — broadcasting an invariant quantity along the node axis preserves equivariance, since with respect to that axis it is a constant.
 
 **Simonovsky & Komodakis, *Dynamic Edge-Conditioned Filters in Convolutional Neural Networks on Graphs*, CVPR 2017.** Makes the message from a neighbour depend on the edge connecting them. Essential here, since a complete graph's adjacency carries no information and all the signal is in the edge weights. Their mechanism is a hypernetwork generating weights from the edge, which has far more parameters than we can afford; we use the cheaper concatenation variant.
 
@@ -95,6 +95,8 @@ Note that nearly all of this literature is about generating *topology* — which
 **Zaheer et al., *Deep Sets*, NeurIPS 2017.** Characterizes functions on sets: any permutation-invariant function can be written as a pooling of per-element encodings. Justifies the predictor's pool-then-MLP shape.
 
 **Lee et al., *Set Transformer*, ICML 2019.** Attention-based pooling (PMA), a learned alternative to mean or sum pooling.
+
+**Edwards & Storkey, *Towards a Neural Statistician*, ICLR 2017.** A two-level latent for exchangeable sets: one context variable c per set plus one latent per item, p(c)·Π_i p(z_i | c). The generative structure behind adding graph-level dimensions to our node-level latent, and the principled fix for the independence of our factorized prior — nodes drawn conditioned on a shared context are independent given it but correlated marginally, where 20 iid draws from N(0,I) have no reason to constitute a coherent landscape. Relevant when prior sampling rather than optimization becomes the priority; see `permutationsandlatent.md`.
 
 **Maron et al., *Invariant and Equivariant Graph Networks*, ICLR 2019.** Characterizes the linear layers that are equivariant to node relabelling. The theory behind why the design is built the way it is.
 
