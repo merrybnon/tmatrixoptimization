@@ -55,10 +55,7 @@ Against a reference implementation of the architecture, not yet the committed `m
 
 **PyTorch gotcha worth the time it cost:** `nn.TransformerEncoderLayer` takes a fused fast path in eval mode that silently returns NaN when given an arbitrary additive float mask — which is exactly what an edge bias is. Training looks healthy, every evaluation is NaN. Hand-rolled the attention block over `F.scaled_dot_product_attention` instead, which handles additive masks correctly in both modes.
 
-### Where we left off
-
-Next steps:
-
-- Explore the latent representation of the graph more.
+### Next steps
+- xExplore the latent representation of the graph more.
 - Finish `models.py` and commit it as is for now.
 - Find literature on the problem of going from landscapes to genetic diversity more broadly.
