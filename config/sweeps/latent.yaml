@@ -1,0 +1,32 @@
+# Latent capacity against the KL weight.
+#
+#   pixi run -e ml pipeline --configfile config/sweeps/latent.yaml -c4 --resources gpu=1 -n
+#   pixi run -e ml pipeline --configfile config/sweeps/latent.yaml -c4 --resources gpu=1
+#
+# The question this sweep exists to answer. At d_latent = 8, beta = 0.15 the
+# trained model used 2 of its 8 per-node dimensions: PCA put 90% of the variance
+# in two components, and only two cleared the posterior noise floor. Two readings
+# of that, and they want opposite things:
+#
+#   - the bottleneck is wider than the data needs, and d_latent = 4 loses nothing
+#   - beta is still charging too much per dimension, and a lower one opens more
+#
+# Crossing the two separates them. If the active count tracks beta and ignores
+# d_latent, the rate is the binding constraint; if it tracks neither, two
+# dimensions is what a 20-node landscape actually costs.
+#
+# Sections are for reading only — every field is flattened before expansion, so
+# a flat file would behave identically. Six points at roughly two minutes each.
+
+model:
+  d_latent: [4, 8, 16]
+  beta: [0.05, 0.15]
+  # Short, because beta is below the collapse threshold in both arms and warmup
+  # is no longer doing the work it was asked to do at beta = 1.
+  beta_warmup_epochs: 20
+
+training:
+  epochs: 300
+  lr_schedule: cosine
+  lr_final_frac: 0.05
+  log_every: 50

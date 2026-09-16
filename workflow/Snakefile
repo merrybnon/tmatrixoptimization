@@ -1,34 +1,83 @@
-"""Pipeline entry point. Currently: raw drop -> processed arrays.
+"""ingest -> train -> evaluate -> visualize -> benchmarks, one chain per sweep point.
 
-    pixi run -e ml pipeline -c1
-    pixi run -e ml pipeline -c1 -n        # dry run, shows what would be built
+    pixi run -e ml pipeline -c1                       # ingest every drop, nothing else
+    pixi run -e ml pipeline --configfile config/sweeps/latent.yaml -c8 --resources gpu=1
+    pixi run -e ml pipeline --configfile config/sweeps/latent.yaml -c8 --resources gpu=1 -n
+    pixi run -e ml pipeline --configfile config/sweeps/latent.yaml -c8 --forcerun train
 
-Every drop directory under ``data/raw/`` is a target, so adding a drop and
-re-running ingests it and leaves the others alone. The raw ``.npz`` is a
-committed file, so Snakemake's mtime tracking works the usual way: touch a
-drop and only that drop rebuilds.
+With no config file this ingests every drop under ``data/raw/`` and stops, which
+is the useful thing to do before any model exists. Given a sweep it expands the
+sweep, ingests only the drops those runs need, and chains the four model stages
+per point.
 
-``tm_ml`` imports directly because pixi puts ``src/`` on PYTHONPATH.
+Both budgets have to be raised together to use more than one card: two 4-thread
+training jobs need ``-c8 --resources gpu=2``, or Snakemake scales the threads
+down and runs them one at a time anyway.
+
+Nothing here branches on model type. Rules act on run directories and the stage
+scripts dispatch on what the checkpoint says, so adding a model is an entry in
+``config.py``, not a rule here.
+
+Paths are relative because the pipeline runs from the repo root, which is what
+the ``pipeline`` pixi task does. ``tm_ml`` imports directly because pixi puts
+``src/`` on PYTHONPATH.
 """
 
+import re
+
+from tm_ml.config import expand_sweep
 from tm_ml.ingest import RAW_DIR, find_source
+from tm_ml.paths import run_name
 
-DROPS = sorted(p.name for p in RAW_DIR.iterdir() if p.is_dir())
+ALL_DROPS = sorted(p.name for p in RAW_DIR.iterdir() if p.is_dir())
+
+if config:
+    try:
+        RUNS = {run_name(cfg): cfg for cfg in expand_sweep(config)}
+    except ValueError as error:
+        raise WorkflowError(f"{workflow.configfiles[-1]}: {error}")
+    CONFIGFILE = str(workflow.configfiles[-1])
+    DROPS = sorted({cfg["drop"] for cfg in RUNS.values()})
+else:
+    RUNS, CONFIGFILE = {}, None
+    DROPS = ALL_DROPS
+
+PKG = "src/tm_ml"
+SHARED_SRC = [f"{PKG}/{name}" for name in
+              ("config.py", "paths.py", "datasets.py", "models.py", "device.py")]
+BENCHMARKS_CSV = "docs/benchmarks/runs.csv"
 
 
-# Without this a drop name would span slashes and swallow the rest of the path.
+# Without these a wildcard spans slashes, so `results/{run}/best.pt` would match
+# any path under results/ — including runs from other sweeps, which Snakemake
+# would then try to train, failing with a KeyError on a run it has never heard
+# of. Pinning run to this sweep makes anything else a plain input file.
 wildcard_constraints:
     drop=r"[^/]+",
+    run="|".join(re.escape(r) for r in RUNS) or r"(?!)",
 
 
 rule all:
     input:
         expand("data/processed/{drop}/meta.json", drop=DROPS),
+        expand("results/{run}/metrics.json", run=list(RUNS)),
+        expand("results/{run}/{figure}.png", run=list(RUNS),
+               figure=["training_curve", "predictions", "reconstruction", "latent"]),
+        [BENCHMARKS_CSV] if RUNS else [],
 
 
 def raw_source(wildcards):
     """The drop's single .npz, found the same way ingest itself finds it."""
     return str(find_source(wildcards.drop))
+
+
+def run_data(wildcards):
+    """The processed arrays a run trains on — the DAG's only data dependency.
+
+    Keyed on the run's own config rather than on a wildcard, so touching one
+    drop rebuilds only the runs that read it.
+    """
+    return f"data/processed/{RUNS[wildcards.run]['drop']}/matrices.npy"
 
 
 rule ingest:
@@ -38,5 +87,108 @@ rule ingest:
         matrices="data/processed/{drop}/matrices.npy",
         targets="data/processed/{drop}/targets.npy",
         meta="data/processed/{drop}/meta.json",
+    log:
+        "data/processed/{drop}/ingest.log",
     shell:
-        "python -m tm_ml.ingest --drop {wildcards.drop}"
+        "python -m tm_ml.ingest --drop {wildcards.drop} 2>&1 | tee {log}"
+
+
+rule train:
+    input:
+        # Sources are deliberately not inputs: a docstring fix in models.py
+        # would otherwise invalidate every trained run in the repo. Provenance
+        # is covered instead by paths.config_guard and the git hash in
+        # train_meta.json; force a retrain explicitly with --forcerun train.
+        data=run_data,
+    output:
+        checkpoint="results/{run}/best.pt",
+        history="results/{run}/history.csv",
+        config="results/{run}/config.yaml",
+        meta="results/{run}/train_meta.json",
+        # config.json is deliberately NOT declared. Snakemake deletes a job's
+        # declared outputs before running it, which would delete the very file
+        # config_guard reads to detect a changed config — defeating the guard
+        # exactly when the workflow is what is running.
+    params:
+        configfile=CONFIGFILE,
+    log:
+        "results/{run}/logs/train.log",
+    threads: 4
+    resources:
+        gpu=1,
+        mem_mb=8000,
+        runtime=240,
+    shell:
+        # tee, not a redirect, so a run's progress shows live without a second
+        # `tail -f`. Snakemake prefixes shell commands with `set -euo pipefail`,
+        # so a crashed stage still fails the rule rather than reporting tee's
+        # exit status.
+        "python -m tm_ml.train --config {params.configfile} --run {wildcards.run} "
+        "--set num_threads={threads} 2>&1 | tee {log}"
+
+
+rule evaluate:
+    input:
+        checkpoint="results/{run}/best.pt",
+        data=run_data,
+        # Sources *are* inputs here: evaluation is seconds, not minutes, and a
+        # changed metric definition should recompute rather than go stale.
+        src=[f"{PKG}/evaluate.py"] + SHARED_SRC,
+    output:
+        metrics="results/{run}/metrics.json",
+    log:
+        "results/{run}/logs/evaluate.log",
+    threads: 2
+    resources:
+        gpu=1,
+        mem_mb=4000,
+        runtime=30,
+    shell:
+        "python -m tm_ml.evaluate --run {wildcards.run} --num_threads {threads} "
+        "2>&1 | tee {log}"
+
+
+rule visualize:
+    input:
+        checkpoint="results/{run}/best.pt",
+        history="results/{run}/history.csv",
+        # The figures read their numbers from metrics.json, which is what orders
+        # this after evaluate — a real dependency rather than a directive.
+        metrics="results/{run}/metrics.json",
+        data=run_data,
+        src=[f"{PKG}/visualize.py", f"{PKG}/evaluate.py"] + SHARED_SRC,
+    output:
+        expand("results/{{run}}/{figure}.png",
+               figure=["training_curve", "predictions", "reconstruction", "latent"]),
+    log:
+        "results/{run}/logs/visualize.log",
+    threads: 2
+    resources:
+        mem_mb=4000,
+        runtime=30,
+    shell:
+        "python -m tm_ml.visualize --run {wildcards.run} --num_threads {threads} "
+        "2>&1 | tee {log}"
+
+
+rule benchmarks:
+    """Upsert a row per evaluated run into the curated ledger.
+
+    update() is load-bearing: Snakemake deletes a job's declared outputs before
+    running it, which would destroy the hand-written rows before benchmarks.py
+    could read them. The flag skips that deletion and restores the file if the
+    job fails.
+
+    The inputs are dependency edges for this sweep's runs; the script scans
+    every run under results/, so rows from other sweeps stay in the table.
+    """
+    input:
+        metrics=expand("results/{run}/metrics.json", run=list(RUNS)),
+        src=f"{PKG}/benchmarks.py",
+    output:
+        table=update(BENCHMARKS_CSV),
+    log:
+        "results/logs/benchmarks.log",
+    threads: 1
+    shell:
+        "python -m tm_ml.benchmarks --csv {output.table} 2>&1 | tee {log}"
