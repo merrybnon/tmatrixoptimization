@@ -278,6 +278,7 @@ def structure(mu, logvar, prefix):
         (eigenvalues > (vh ** 2) @ mean_var).sum()
     )
     out[f"{prefix}_pca_eigenvalues"] = [round(float(v), 8) for v in eigenvalues]
+    out[f"{prefix}_kl_per_dim"] = [round(float(v), 8) for v in kl_per_dim]
 
     # Cov(mu) is rank <= n-1, so the correlation matrix is singular once the
     # sample is no wider than the latent and the determinant says nothing.

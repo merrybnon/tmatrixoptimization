@@ -6,12 +6,10 @@ whose failure is a plausible-looking number rather than an exception.
 
 import json
 
-import numpy as np
 import pytest
 import torch
 
-from tm_ml import datasets, evaluate, paths, train
-from tm_ml.config import defaults_for
+from tm_ml import evaluate, paths, train
 from tm_ml.datasets import TargetScaler
 from tm_ml.evaluate import (
     dims_to,
@@ -100,39 +98,8 @@ def test_validity_metrics_see_a_broken_diagonal():
     assert out["recon_row_sum_max_dev"] == pytest.approx(0.0, abs=1e-6)
 
 
-@pytest.fixture
-def wired(tmp_path, monkeypatch):
-    """A processed drop and an empty results tree, both redirected to tmp."""
-    rng = np.random.default_rng(0)
-    eye = np.eye(5, dtype=bool)
-    logits = rng.normal(size=(40, 5, 5))
-    logits[:, eye] = -np.inf
-    matrices = np.exp(logits - logits.max(-1, keepdims=True))
-    matrices[:, eye] = 0.0
-    matrices /= matrices.sum(-1, keepdims=True)
-
-    processed = tmp_path / "processed"
-    (processed / "Tiny40").mkdir(parents=True)
-    np.save(processed / "Tiny40" / "matrices.npy", matrices.astype(np.float32))
-    np.save(
-        processed / "Tiny40" / "targets.npy",
-        np.exp(rng.normal(6, 0.7, 40)).astype(np.float32),
-    )
-
-    monkeypatch.setattr(datasets, "PROCESSED_DIR", processed)
-    monkeypatch.setattr(paths, "RESULTS_ROOT", tmp_path / "results")
-    return tmp_path
-
-
-def test_train_then_evaluate_end_to_end(wired):
-    cfg = defaults_for("tmvae") | {
-        "drop": "Tiny40", "epochs": 2, "batch_size": 8, "gpu": "cpu",
-        "d_model": 32, "n_heads": 4, "d_ff": 32, "encoder_layers": 2,
-        "decoder_layers": 1, "val_frac": 0.2, "test_frac": 0.2,
-    }
-    cfg["run"] = paths.run_name(cfg)
-    cfg["config"] = None
-
+def test_train_then_evaluate_end_to_end(wired, tiny_config):
+    cfg = tiny_config
     train.train(cfg)
     metrics = evaluate.evaluate(cfg["run"])
 
