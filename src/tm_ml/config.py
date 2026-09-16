@@ -28,6 +28,12 @@ import yaml
 COMMON_DEFAULTS = {
     "model": "tmvae",
     "drop": "Tom1000",
+    # Where the run is filed under results/. May contain slashes to nest. Purely
+    # organizational, so it is non-determining: the folder a run sits in does not
+    # change what is trained, it stays out of the run name and out of
+    # config_guard, and a run can be moved between folders without being locked
+    # out of its own directory.
+    "parent_path": "",
     "seed": 0,
     "val_frac": 0.1,
     "test_frac": 0.1,
@@ -101,7 +107,11 @@ RUNTIME_DEFAULTS = {
 # and which run of it this is.
 WORKFLOW_FIELDS = frozenset({"config", "run"})
 
-NON_DETERMINING = frozenset(RUNTIME_DEFAULTS) | WORKFLOW_FIELDS
+# Filing, not science. Kept separate from the runtime fields so the reason each
+# one is non-determining stays legible.
+ORGANIZING_FIELDS = frozenset({"parent_path"})
+
+NON_DETERMINING = frozenset(RUNTIME_DEFAULTS) | WORKFLOW_FIELDS | ORGANIZING_FIELDS
 
 POOLING_MODES = ("mean", "deepsets", "attention")
 

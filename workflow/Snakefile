@@ -27,13 +27,13 @@ import re
 
 from tm_ml.config import expand_sweep
 from tm_ml.ingest import RAW_DIR, find_source
-from tm_ml.paths import run_name
+from tm_ml.paths import run_path
 
 ALL_DROPS = sorted(p.name for p in RAW_DIR.iterdir() if p.is_dir())
 
 if config:
     try:
-        RUNS = {run_name(cfg): cfg for cfg in expand_sweep(config)}
+        RUNS = {run_path(cfg): cfg for cfg in expand_sweep(config)}
     except ValueError as error:
         raise WorkflowError(f"{workflow.configfiles[-1]}: {error}")
     CONFIGFILE = str(workflow.configfiles[-1])

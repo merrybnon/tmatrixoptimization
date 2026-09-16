@@ -54,7 +54,7 @@ def resolve_config(args):
     if args.config is None:
         cfg = defaults_for(args.model)
     else:
-        candidates = {paths.run_name(c): c for c in load_sweep(args.config)}
+        candidates = {paths.run_path(c): c for c in load_sweep(args.config)}
         if args.run is None:
             raise SystemExit("--config needs --run naming which point of the sweep to train")
         if args.run not in candidates:
@@ -64,7 +64,7 @@ def resolve_config(args):
 
     cfg = apply_cli_overrides(cfg, args.set)
     cfg["config"] = str(args.config) if args.config else None
-    cfg["run"] = paths.run_name(cfg)
+    cfg["run"] = paths.run_path(cfg)
     return cfg
 
 

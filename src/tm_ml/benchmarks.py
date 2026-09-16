@@ -66,17 +66,40 @@ def read_ledger(path):
         return list(reader), list(reader.fieldnames or [])
 
 
+# What makes a directory a run rather than a container. Recursing for these
+# rather than listing one level down is what lets runs be filed under a
+# parent_path of any depth.
+RUN_MARKERS = (paths.METRICS, paths.TRAIN_META, paths.CHECKPOINT)
+
+
+def find_runs(results_root):
+    """Every run directory under ``results/``, at whatever depth it is filed."""
+    root = Path(results_root)
+    if not root.exists():
+        return []
+    found = set()
+    for marker in RUN_MARKERS:
+        found |= {path.parent for path in root.rglob(marker)}
+    return sorted(found)
+
+
 def scan(results_root):
-    """One row per evaluated run under ``results/``.
+    """One row per evaluated run under ``results/``, keyed by its path.
+
+    The key is the path relative to ``results/``, so a run filed under a
+    parent_path carries that in its identity — ``initial_testing/TMVAE_...``.
 
     A run with no ``metrics.json`` has not been evaluated, so it has nothing to
     contribute yet; it is reported rather than silently skipped.
     """
+    root = Path(results_root)
     rows, unevaluated = {}, []
-    for run_dir in sorted(p for p in Path(results_root).iterdir() if p.is_dir()):
+
+    for run_dir in find_runs(root):
+        key = run_dir.relative_to(root).as_posix()
         metrics_path = run_dir / paths.METRICS
         if not metrics_path.exists():
-            unevaluated.append(run_dir.name)
+            unevaluated.append(key)
             continue
 
         record = json.loads(metrics_path.read_text())
@@ -87,9 +110,8 @@ def scan(results_root):
                 # overlap on provenance fields like git_commit.
                 record = {**json.loads(extra.read_text()), **record}
 
-        rows[run_dir.name] = {
-            column: format_cell(record.get(column)) for column in COLUMNS
-        }
+        record["run"] = key
+        rows[key] = {column: format_cell(record.get(column)) for column in COLUMNS}
     return rows, unevaluated
 
 

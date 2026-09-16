@@ -206,8 +206,21 @@ def run_name(cfg):
     return "_".join(p for p in parts if p)
 
 
+def run_path(cfg):
+    """Where a run is filed: ``<parent_path>/<run_name>``, or the bare name.
+
+    The parent is organizational and may nest, so ``initial_testing`` and
+    ``initial_testing/initial_sweep`` are both fine. It does not reach the run
+    name, so the same config filed in two folders keeps one identity — which is
+    also why sweeping it is refused.
+    """
+    parent = str(cfg.get("parent_path") or "").strip("/")
+    name = run_name(cfg)
+    return f"{parent}/{name}" if parent else name
+
+
 def resolve(run):
-    """Path to a run directory: ``results/<run>``."""
+    """Path to a run directory: ``results/<parent_path>/<run_name>``."""
     return RESULTS_ROOT / run
 
 

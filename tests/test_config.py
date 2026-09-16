@@ -13,7 +13,7 @@ from tm_ml.config import (
     apply_cli_overrides, defaults_for, expand_sweep, load_sweep, loss_weight_at, lr_at,
 )
 from tm_ml.paths import (
-    ABBREV, NAME_BASELINE, config_guard, determining_fields, run_name,
+    ABBREV, NAME_BASELINE, config_guard, determining_fields, run_name, run_path,
 )
 
 
@@ -355,3 +355,39 @@ def test_loss_weight_warmup_longer_than_training_is_refused(weight):
 def test_gamma_warmup_reaches_the_name():
     cfg = expand_sweep({"gamma_warmup_epochs": 10})[0]
     assert run_name(cfg) == "TMVAE_gw10_Tom1000"
+
+
+# --- parent_path ----------------------------------------------------------
+
+
+def test_parent_path_defaults_to_flat():
+    cfg = defaults_for("tmvae")
+    assert cfg["parent_path"] == ""
+    assert run_path(cfg) == run_name(cfg)
+
+
+def test_parent_path_files_the_run_under_a_folder():
+    cfg = defaults_for("tmvae") | {"parent_path": "initial_testing"}
+    assert run_path(cfg) == f"initial_testing/{run_name(cfg)}"
+
+
+def test_parent_path_may_nest():
+    cfg = defaults_for("tmvae") | {"parent_path": "initial_testing/initial_sweep/"}
+    assert run_path(cfg) == f"initial_testing/initial_sweep/{run_name(cfg)}"
+
+
+def test_parent_path_does_not_reach_the_run_name():
+    """Filing is not science: the same config keeps one identity."""
+    plain = defaults_for("tmvae")
+    filed = plain | {"parent_path": "somewhere/else"}
+    assert run_name(filed) == run_name(plain)
+
+
+def test_parent_path_is_not_checked_by_config_guard(tmp_path):
+    config_guard(tmp_path / "run", defaults_for("tmvae"))
+    config_guard(tmp_path / "run", defaults_for("tmvae") | {"parent_path": "moved"})
+
+
+def test_sweeping_parent_path_is_refused():
+    with pytest.raises(ValueError, match="cannot sweep parent_path"):
+        expand_sweep({"parent_path": ["a", "b"]})

@@ -44,6 +44,6 @@ def tiny_config():
         "d_model": 32, "n_heads": 4, "d_ff": 32, "encoder_layers": 2,
         "decoder_layers": 1, "val_frac": 0.2, "test_frac": 0.2,
     }
-    cfg["run"] = paths.run_name(cfg)
+    cfg["run"] = paths.run_path(cfg)
     cfg["config"] = None
     return cfg

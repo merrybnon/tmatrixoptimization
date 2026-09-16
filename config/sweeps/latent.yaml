@@ -26,6 +26,7 @@ model:
   beta_warmup_epochs: 20
 
 training:
+  parent_path: initial_testing/initial_sweep
   epochs: 300
   lr_schedule: cosine
   lr_final_frac: 0.05

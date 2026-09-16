@@ -119,7 +119,10 @@ def test_a_row_survives_its_run_directory(tmp_path):
 def test_an_unevaluated_run_gets_no_row(tmp_path, capsys):
     results = tmp_path / "results"
     make_run(results, "TMVAE_a_Tom1000")
-    (results / "TMVAE_untrained_Tom1000").mkdir()
+    # Trained but not yet evaluated: a checkpoint and no metrics.
+    unevaluated = results / "TMVAE_untrained_Tom1000"
+    unevaluated.mkdir()
+    (unevaluated / paths.CHECKPOINT).write_bytes(b"")
     csv_path = tmp_path / "runs.csv"
 
     benchmarks.update(csv_path, results)
@@ -148,3 +151,33 @@ def test_floats_are_rounded_for_reading():
     assert benchmarks.format_cell(None) == ""
     assert benchmarks.format_cell(True) == "True"
     assert benchmarks.format_cell([1, 2]) == "[1, 2]"
+
+
+def test_runs_are_found_under_a_parent_path(tmp_path):
+    """Filing a run in a folder must not hide it from the ledger."""
+    results = tmp_path / "results"
+    make_run(results, "flat_Tom1000")
+    make_run(results, "initial_testing/TMVAE_a_Tom1000")
+    make_run(results, "initial_testing/initial_sweep/TMVAE_b_Tom1000")
+    csv_path = tmp_path / "runs.csv"
+
+    benchmarks.update(csv_path, results)
+
+    assert [r["run"] for r in read(csv_path)] == [
+        "flat_Tom1000",
+        "initial_testing/TMVAE_a_Tom1000",
+        "initial_testing/initial_sweep/TMVAE_b_Tom1000",
+    ]
+
+
+def test_the_key_is_the_path_not_the_name(tmp_path):
+    """The same run name in two folders is two rows, not one overwriting."""
+    results = tmp_path / "results"
+    make_run(results, "sweep_a/TMVAE_x_Tom1000", test_r2=0.1)
+    make_run(results, "sweep_b/TMVAE_x_Tom1000", test_r2=0.2)
+    csv_path = tmp_path / "runs.csv"
+
+    benchmarks.update(csv_path, results)
+    rows = read(csv_path)
+    assert len(rows) == 2
+    assert {r["test_r2"] for r in rows} == {"0.1", "0.2"}
