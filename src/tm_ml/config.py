@@ -77,6 +77,13 @@ MODEL_DEFAULTS = {
         # reconstruction has learned anything is the failure mode to expect,
         # and this is the cheapest remedy.
         "beta_warmup_epochs": 0,
+        # The same for gamma, though motivated differently: beta warmup protects
+        # the latent from collapsing early, gamma warmup lets reconstruction
+        # establish itself before the property term starts pulling the latent
+        # around. Worth noting the pull is the mechanism, not a nuisance — it is
+        # what organizes the latent for ascent — so delaying it is a trade, not
+        # a free fix.
+        "gamma_warmup_epochs": 0,
     },
 }
 
@@ -99,6 +106,9 @@ NON_DETERMINING = frozenset(RUNTIME_DEFAULTS) | WORKFLOW_FIELDS
 POOLING_MODES = ("mean", "deepsets", "attention")
 
 LR_SCHEDULES = ("constant", "cosine", "exponential")
+
+# Loss weights that can be warmed up, each with a `<name>_warmup_epochs` field.
+LOSS_WEIGHTS = ("beta", "gamma")
 
 # What "no decay" looks like on disk. Frozen rather than read from the defaults:
 # a constant-lr run is coerced to this value, so moving it would put a spurious
@@ -244,11 +254,13 @@ def _finalize(cfg):
         )
     if cfg["d_global"] < 0:
         raise ValueError(f"d_global must be at least 0, got {cfg['d_global']!r}")
-    if cfg["beta_warmup_epochs"] > cfg["epochs"]:
-        raise ValueError(
-            f"beta_warmup_epochs {cfg['beta_warmup_epochs']} exceeds epochs {cfg['epochs']}; "
-            "beta would never reach its full value"
-        )
+    for weight in LOSS_WEIGHTS:
+        field = f"{weight}_warmup_epochs"
+        if not 0 <= cfg[field] <= cfg["epochs"]:
+            raise ValueError(
+                f"{field} must be between 0 and epochs {cfg['epochs']}, got "
+                f"{cfg[field]!r}; {weight} would never reach its full value"
+            )
 
 
 def lr_at(cfg, epoch):
@@ -281,6 +293,23 @@ def lr_at(cfg, epoch):
     if schedule == "cosine":
         return final + (lr - final) * 0.5 * (1 + math.cos(math.pi * progress))
     return lr * cfg["lr_final_frac"] ** progress
+
+
+def loss_weight_at(cfg, name, epoch):
+    """`beta` or `gamma` for a 0-indexed epoch, ramping linearly to its value.
+
+    The same shape as `lr_at`'s warmup and for the same reason — one definition
+    of what the field means, testable without torch. A weight with no warmup is
+    its configured value from the first epoch.
+    """
+    if name not in LOSS_WEIGHTS:
+        raise ValueError(f"unknown loss weight {name!r}; expected one of {list(LOSS_WEIGHTS)}")
+
+    target, warmup = cfg[name], cfg[f"{name}_warmup_epochs"]
+    epoch = min(max(epoch, 0), cfg["epochs"] - 1)
+    if epoch >= warmup:
+        return target
+    return target * (epoch + 1) / warmup
 
 
 def load_sweep(path):

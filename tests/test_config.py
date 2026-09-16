@@ -10,7 +10,7 @@ import pytest
 
 from tm_ml import config as C
 from tm_ml.config import (
-    apply_cli_overrides, defaults_for, expand_sweep, load_sweep, lr_at,
+    apply_cli_overrides, defaults_for, expand_sweep, load_sweep, loss_weight_at, lr_at,
 )
 from tm_ml.paths import (
     ABBREV, NAME_BASELINE, config_guard, determining_fields, run_name,
@@ -66,7 +66,7 @@ def test_sweeping_a_runtime_field_is_refused():
     ({"d_model": 64, "n_heads": 7}, "not divisible"),
     ({"pooling": "softmax"}, "unknown pooling"),
     ({"val_frac": 0.6, "test_frac": 0.5}, "leave a training split"),
-    ({"beta_warmup_epochs": 50, "epochs": 10}, "exceeds epochs"),
+    ({"beta_warmup_epochs": 50, "epochs": 10}, "beta_warmup_epochs must be between"),
     ({"epochs": 0}, "at least 1"),
 ])
 def test_validation_fails_at_expansion(spec, match):
@@ -313,3 +313,45 @@ def test_warmup_longer_than_training_is_refused():
 def test_warmup_may_span_the_whole_run():
     cfg = expand_sweep({"lr_warmup_epochs": 10, "epochs": 10})[0]
     assert lr_at(cfg, 9) == pytest.approx(cfg["lr"])
+
+
+# --- loss-weight warmup ---------------------------------------------------
+
+
+@pytest.mark.parametrize("weight", ["beta", "gamma"])
+def test_loss_weight_warmup_is_off_by_default(weight):
+    cfg = defaults_for("tmvae")
+    assert cfg[f"{weight}_warmup_epochs"] == 0
+    assert [loss_weight_at(cfg, weight, e) for e in (0, 25, 49)] == [cfg[weight]] * 3
+
+
+@pytest.mark.parametrize("weight", ["beta", "gamma"])
+def test_loss_weight_ramps_then_holds(weight):
+    cfg = expand_sweep({f"{weight}_warmup_epochs": 4, weight: 2.0, "epochs": 10})[0]
+    series = [loss_weight_at(cfg, weight, e) for e in range(10)]
+
+    assert series[:4] == [pytest.approx(2.0 * f) for f in (0.25, 0.5, 0.75, 1.0)]
+    assert series[4:] == [pytest.approx(2.0)] * 6
+    assert series == sorted(series)
+
+
+def test_the_two_warmups_are_independent():
+    cfg = expand_sweep({"beta_warmup_epochs": 8, "gamma_warmup_epochs": 2, "epochs": 10})[0]
+    assert loss_weight_at(cfg, "gamma", 4) == pytest.approx(cfg["gamma"])
+    assert loss_weight_at(cfg, "beta", 4) < cfg["beta"]
+
+
+def test_unknown_loss_weight_is_refused():
+    with pytest.raises(ValueError, match="unknown loss weight 'delta'"):
+        loss_weight_at(defaults_for("tmvae"), "delta", 0)
+
+
+@pytest.mark.parametrize("weight", ["beta", "gamma"])
+def test_loss_weight_warmup_longer_than_training_is_refused(weight):
+    with pytest.raises(ValueError, match=f"{weight}_warmup_epochs must be between"):
+        expand_sweep({f"{weight}_warmup_epochs": 20, "epochs": 10})
+
+
+def test_gamma_warmup_reaches_the_name():
+    cfg = expand_sweep({"gamma_warmup_epochs": 10})[0]
+    assert run_name(cfg) == "TMVAE_gw10_Tom1000"

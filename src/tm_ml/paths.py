@@ -97,6 +97,7 @@ ABBREV = {
     "beta": "b",
     "gamma": "g",
     "beta_warmup_epochs": "bw",
+    "gamma_warmup_epochs": "gw",
 }
 
 NAMED_SEPARATELY = frozenset({"model", "drop"})
@@ -135,6 +136,7 @@ NAME_BASELINE = {
         "beta": 1.0,
         "gamma": 1.0,
         "beta_warmup_epochs": 0,
+        "gamma_warmup_epochs": 0,
     },
 }
 
