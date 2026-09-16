@@ -40,6 +40,11 @@ COMMON_DEFAULTS = {
     # runs that train identically would differ in the name and be trained twice.
     "lr_schedule": "constant",
     "lr_final_frac": 0.01,
+    # Linear ramp to `lr` over the first N epochs, then the schedule takes the
+    # rest. Orthogonal to lr_schedule — a warmup with a constant rate is a
+    # perfectly ordinary thing to want — so unlike lr_final_frac it is never
+    # inert and always reaches the run name.
+    "lr_warmup_epochs": 0,
     "weight_decay": 0.0,
     "grad_clip": 5.0,
     # 0 disables early stopping. Determining, because stopping early changes
@@ -216,6 +221,11 @@ def _finalize(cfg):
             f"lr_final_frac is a fraction of lr and must be in (0, 1], got "
             f"{cfg['lr_final_frac']!r}"
         )
+    if not 0 <= cfg["lr_warmup_epochs"] <= cfg["epochs"]:
+        raise ValueError(
+            f"lr_warmup_epochs must be between 0 and epochs {cfg['epochs']}, got "
+            f"{cfg['lr_warmup_epochs']!r}; the rate would never reach lr"
+        )
     # Checked before coercing, so a nonsensical value is still reported rather
     # than quietly discarded.
     if cfg["lr_schedule"] == "constant":
@@ -242,19 +252,32 @@ def _finalize(cfg):
 
 
 def lr_at(cfg, epoch):
-    """Learning rate for a 0-indexed epoch, decaying to ``lr * lr_final_frac``.
+    """Learning rate for a 0-indexed epoch: ramp to ``lr``, then decay from it.
 
-    Pure arithmetic, kept here so the two schedule fields have exactly one
+    The first ``lr_warmup_epochs`` epochs run linearly from ``lr / warmup`` up
+    to ``lr`` — starting at a fraction rather than at zero, so no epoch is spent
+    not learning. The schedule then decays from ``lr`` to ``lr * lr_final_frac``
+    across whatever epochs remain. Warmup applies under a constant rate too,
+    where it is a ramp followed by a plateau.
+
+    Pure arithmetic, kept here so the three schedule fields have exactly one
     definition and it can be tested without torch. `train.py` calls this each
     epoch rather than building a torch scheduler, which keeps the resolved
     config the only description of a run.
     """
     lr, schedule = cfg["lr"], cfg["lr_schedule"]
-    if schedule == "constant" or cfg["epochs"] < 2:
+    epochs, warmup = cfg["epochs"], cfg["lr_warmup_epochs"]
+    epoch = min(max(epoch, 0), epochs - 1)
+
+    if epoch < warmup:
+        return lr * (epoch + 1) / warmup
+
+    span = epochs - 1 - warmup
+    if schedule == "constant" or span < 1:
         return lr
 
     final = lr * cfg["lr_final_frac"]
-    progress = min(max(epoch, 0), cfg["epochs"] - 1) / (cfg["epochs"] - 1)
+    progress = (epoch - warmup) / span
     if schedule == "cosine":
         return final + (lr - final) * 0.5 * (1 + math.cos(math.pi * progress))
     return lr * cfg["lr_final_frac"] ** progress

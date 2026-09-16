@@ -262,3 +262,54 @@ def test_sweeping_final_frac_with_a_schedule_is_allowed():
 def test_bad_schedule_settings_fail_at_expansion(spec, match):
     with pytest.raises(ValueError, match=match):
         expand_sweep(spec)
+
+
+def test_warmup_is_off_by_default():
+    assert defaults_for("tmvae")["lr_warmup_epochs"] == 0
+
+
+def test_warmup_ramps_to_lr_without_a_dead_epoch():
+    cfg = expand_sweep({"lr_warmup_epochs": 4, "epochs": 12})[0]
+    ramp = [lr_at(cfg, e) for e in range(4)]
+
+    assert ramp[0] > 0, "the first epoch must still learn"
+    assert ramp == sorted(ramp)
+    assert ramp[-1] == pytest.approx(cfg["lr"])
+    assert ramp == [pytest.approx(cfg["lr"] * f) for f in (0.25, 0.5, 0.75, 1.0)]
+
+
+def test_warmup_applies_under_a_constant_rate():
+    """Warmup is orthogonal to the schedule, so it holds at lr afterwards."""
+    cfg = expand_sweep({"lr_warmup_epochs": 3, "epochs": 10})[0]
+    assert cfg["lr_schedule"] == "constant"
+    assert [lr_at(cfg, e) for e in range(3, 10)] == [cfg["lr"]] * 7
+
+
+@pytest.mark.parametrize("schedule", ["cosine", "exponential"])
+def test_decay_starts_from_lr_after_the_ramp(schedule):
+    cfg = expand_sweep({
+        "lr_schedule": schedule, "lr_final_frac": 0.05,
+        "lr_warmup_epochs": 4, "epochs": 20,
+    })[0]
+
+    assert lr_at(cfg, 3) == pytest.approx(cfg["lr"]), "ramp must end at lr"
+    assert lr_at(cfg, 4) == pytest.approx(cfg["lr"]), "decay must begin at lr"
+    assert lr_at(cfg, 19) == pytest.approx(cfg["lr"] * 0.05)
+
+    tail = [lr_at(cfg, e) for e in range(4, 20)]
+    assert tail == sorted(tail, reverse=True)
+
+
+def test_warmup_reaches_the_name_even_with_a_constant_rate():
+    cfg = expand_sweep({"lr_warmup_epochs": 5})[0]
+    assert run_name(cfg) == "TMVAE_lrw5_Tom1000"
+
+
+def test_warmup_longer_than_training_is_refused():
+    with pytest.raises(ValueError, match="lr_warmup_epochs must be between 0 and epochs"):
+        expand_sweep({"lr_warmup_epochs": 20, "epochs": 10})
+
+
+def test_warmup_may_span_the_whole_run():
+    cfg = expand_sweep({"lr_warmup_epochs": 10, "epochs": 10})[0]
+    assert lr_at(cfg, 9) == pytest.approx(cfg["lr"])
