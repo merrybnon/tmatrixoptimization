@@ -1,6 +1,6 @@
 # Repository structure
 
-The canonical record of how this repo is laid out and why. `README.md` and `CLAUDE.md` each carry a short map for their own audience — a human arriving at the repo, and the instructions loaded into every session — but those are summaries. Structural decisions and their reasoning belong here, and this is the file to edit when the layout changes.
+How this repo is laid out and why. `README.md` and `CLAUDE.md` carry their own short maps for their own audiences — a human arriving at the repo, and the instructions loaded into every session. This note is where the reasoning lives, and it is edited on its own.
 
 ## Layout
 

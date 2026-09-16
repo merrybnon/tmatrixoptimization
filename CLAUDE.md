@@ -12,8 +12,6 @@ Python dependencies are managed with pixi. Python commands should be run with pi
 
 ## Repository Structure
 
-`docs/notes/repo_structure.md` is the canonical record, with the reasoning behind each choice; the map below is a summary.
-
 - `config/` — `sweeps/` holds one YAML per sweep
 - `workflow/` — `Snakefile` chaining ingest → train → evaluate → visualize → benchmarks, with `rules/` and `profiles/`
 - `src/tm_ml/` — the package: `ingest.py`, `datasets.py`, `models.py`, `train.py`, `config.py`, `paths.py`, `device.py`
