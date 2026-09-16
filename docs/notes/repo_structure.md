@@ -15,6 +15,25 @@ How this repo is laid out and why. `README.md` and `CLAUDE.md` carry their own s
 | `tests/` | tests plus `fixtures/tiny.npz` | yes |
 | `docs/` | `benchmarks/` (run sizing and results CSV), `notes/` | yes |
 
+## The package
+
+`src/tm_ml/` is one importable package, on `PYTHONPATH` through pixi, called by the Snakemake rules and by the pixi tasks. The module split carries over from `hotspotLandscapes/ml/hotspot_ml/`, which is where these responsibilities are already implemented and worth reading before rewriting any of them. `ingest.py` is the one addition here, since data arrives from outside rather than from a simulation living in the same repo. Written so far: `ingest.py` and `models.py`.
+
+| module | responsibility |
+|---|---|
+| `ingest.py` | the only code that reads a raw drop. Stacks the source's object array into one contiguous `(N, 20, 20)` block, validates fatally with the offending index named, writes `matrices.npy`, `targets.npy` and `meta.json` |
+| `config.py` | resolve a sweep YAML into one config dict per run. Defaults live here, not in the YAML, so a config file holds exactly the parameters that sweep varies; any field given a list is a swept axis and several lists give the cartesian product. Imports nothing heavier than yaml and pathlib, so the Snakefile can build its DAG without loading torch |
+| `paths.py` | run-directory naming and resolution. A run lives at `results/<run_name>/` and holds everything for one trained model — checkpoint, history, metrics, figures. The name is a pure function of the resolved config, so the workflow can compute every output path before torch is imported, and every determining field appears in it, or two points of a sweep share a directory and overwrite each other silently |
+| `device.py` | pick a GPU on a shared multi-card box. `gpu: auto` takes the card with least memory in use, tie-broken on utilization, resolved to an explicit `cuda:<i>` rather than `CUDA_VISIBLE_DEVICES`, which has no effect once torch has initialized CUDA in-process. Memory alone is not enough when we launch the jobs: two runs started together both read nvidia-smi before either allocates, see the same idle cards and deterministically pick the same one, so each process also stakes an advisory claim file that a dead PID releases |
+| `datasets.py` | serve `(T, target)` pairs out of `data/processed/<drop>/` with the train/val/test split. The target transform belongs here — taking the log, and standardizing on statistics fitted from the train split alone, with the constants exposed so evaluation can invert them |
+| `models.py` | the VAE, the property predictor and the loss |
+| `train.py` | settings resolve in three layers, later winning: the defaults in `config.py`, then a sweep YAML, then any explicitly passed CLI flag. Best checkpoint, history and figures all land in the one run directory |
+| `evaluate.py` | score a trained run on its held-out test split and write `metrics.json`, including whatever landscape-blind baseline the metric has to beat |
+| `visualize.py` | diagnostic figures into the run directory, each stamped with a provenance footer — checkpoint epoch and score, drop, split seed, git hash, timestamp — so a figure is self-describing wherever it ends up |
+| `benchmarks.py` | upsert one row per evaluated run into `docs/benchmarks/`. A curated ledger rather than a mirror of disk: hand-written rows and hand-written notes survive, and a row whose run directory was deleted stays |
+
+The pixi tasks name `train`, `evaluate`, `visualize` and `benchmarks`, and the workflow chain in `CLAUDE.md` names the same four, so all of them are part of the design even where a shorter list appears elsewhere.
+
 ## The decisions behind it
 
 **Raw drops are committed; processed arrays and results are not.** A clone carries the exact bytes a run trained on, which is the only way to reproduce a result when the generator lives outside the repo. Everything derived from those bytes is reproducible from them, so tracking it would only add merge conflicts on binary files.
