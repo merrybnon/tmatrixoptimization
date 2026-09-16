@@ -1,0 +1,14 @@
+# Smoke sweep: four short runs, enough to exercise the pipeline end to end.
+#
+#   pixi run -e ml train --config config/sweeps/smoke.yaml --run TMVAE_bw3-e6_Tom1000
+#
+# Sections are for reading only; a flat file is equally valid. Every field given
+# a list is an axis, so this is 2 x 2 = 4 runs.
+
+training:
+  epochs: 6
+  gpu: cpu
+
+model:
+  beta_warmup_epochs: [0, 3]
+  pooling: [deepsets, attention]

@@ -53,7 +53,11 @@ from pathlib import Path
 
 from tm_ml.config import NON_DETERMINING
 
-RESULTS_ROOT = Path("results")
+# Absolute, so a run writes to the repo's results/ whatever the working
+# directory is. `ingest.py` computes its own ROOT rather than importing this,
+# to stay free of the config/yaml import chain.
+ROOT = Path(__file__).resolve().parents[2]
+RESULTS_ROOT = ROOT / "results"
 
 CLASS_NAMES = {"tmvae": "TMVAE"}
 
