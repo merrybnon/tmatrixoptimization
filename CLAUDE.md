@@ -14,7 +14,7 @@ Python dependencies are managed with pixi. Python commands should be run with pi
 
 - `config/` — `sweeps/` holds one YAML per sweep
 - `workflow/` — `Snakefile` chaining ingest → train → evaluate → visualize → benchmarks, with `rules/` and `profiles/`
-- `src/tm_ml/` — the package: `ingest.py`, `datasets.py`, `models.py`, `train.py`, `config.py`, `paths.py`, `device.py`
+- `src/tm_ml/` — the package: `ingest.py`, `datasets.py`, `models.py`, `train.py`, `evaluate.py`, `visualize.py`, `benchmarks.py`, `config.py`, `paths.py`, `device.py`
 - `data/` — gitignored; `raw/` the untouched external drop, `processed/` the canonical arrays plus `meta.json` provenance
 - `results/` — gitignored run directories, named from the determining hyperparameters
 - `tests/` — `fixtures/tiny.npz` is committed so the pipeline runs without the real data
