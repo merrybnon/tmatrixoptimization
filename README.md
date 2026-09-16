@@ -6,7 +6,9 @@ Transition matrix data arrives from outside the repo. The `ingest` stage is the 
 
 ## Layout
 
-- `config/` — `data.yaml` (external source path + checksum) and `sweeps/` (one YAML per sweep)
+See `docs/notes/repo_structure.md` for the canonical version and the reasoning.
+
+- `config/` — `sweeps/` (one YAML per sweep)
 - `workflow/` — Snakemake pipeline: `Snakefile`, `rules/`, `profiles/`
 - `src/tm_ml/` — the importable package the rules call
 - `data/` — gitignored; `raw/` is the untouched external drop, `processed/` the ingest output
