@@ -58,6 +58,8 @@ from tm_ml.config import NON_DETERMINING
 # to stay free of the config/yaml import chain.
 ROOT = Path(__file__).resolve().parents[2]
 RESULTS_ROOT = ROOT / "results"
+# Committed, unlike results/: the ledger is the record of what was tried.
+BENCHMARKS_CSV = ROOT / "docs" / "benchmarks" / "runs.csv"
 
 CLASS_NAMES = {"tmvae": "TMVAE"}
 
