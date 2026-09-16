@@ -9,7 +9,9 @@ import json
 import pytest
 
 from tm_ml import config as C
-from tm_ml.config import apply_cli_overrides, defaults_for, expand_sweep, load_sweep
+from tm_ml.config import (
+    apply_cli_overrides, defaults_for, expand_sweep, load_sweep, lr_at,
+)
 from tm_ml.paths import (
     ABBREV, NAME_BASELINE, config_guard, determining_fields, run_name,
 )
@@ -199,3 +201,64 @@ def test_asking_for_the_old_default_reuses_the_old_directory(monkeypatch):
     again = defaults_for("tmvae") | {"epochs": 50}
     assert again == trained
     assert run_name(again) == run_name(trained) == "TMVAE_Tom1000"
+
+
+# --- learning-rate decay --------------------------------------------------
+
+
+def test_decay_is_off_by_default():
+    cfg = defaults_for("tmvae")
+    assert cfg["lr_schedule"] == "constant"
+    assert [lr_at(cfg, e) for e in (0, 25, 49)] == [cfg["lr"]] * 3
+
+
+@pytest.mark.parametrize("schedule", ["cosine", "exponential"])
+def test_a_schedule_runs_from_lr_to_lr_times_final_frac(schedule):
+    cfg = expand_sweep({"lr_schedule": schedule, "lr_final_frac": 0.05, "epochs": 20})[0]
+    first, last = lr_at(cfg, 0), lr_at(cfg, 19)
+
+    assert first == pytest.approx(cfg["lr"])
+    assert last == pytest.approx(cfg["lr"] * 0.05)
+    series = [lr_at(cfg, e) for e in range(20)]
+    assert series == sorted(series, reverse=True), "lr must decay monotonically"
+
+
+def test_lr_at_handles_a_single_epoch():
+    cfg = expand_sweep({"lr_schedule": "cosine", "epochs": 1})[0]
+    assert lr_at(cfg, 0) == cfg["lr"]
+
+
+def test_final_frac_is_pinned_without_a_schedule():
+    """Inert settings must not reach the name, or identical runs train twice."""
+    cfg = expand_sweep({"lr_final_frac": 0.5})[0]
+    assert cfg["lr_final_frac"] == C.INERT_LR_FINAL_FRAC
+    assert run_name(cfg) == "TMVAE_Tom1000"
+
+
+def test_schedule_and_final_frac_reach_the_name():
+    cfg = expand_sweep({"lr_schedule": "cosine", "lr_final_frac": 0.05})[0]
+    assert run_name(cfg) == "TMVAE_lff0p05-schcosine_Tom1000"
+
+
+def test_sweeping_final_frac_without_a_schedule_is_refused():
+    with pytest.raises(ValueError, match="cannot sweep lr_final_frac"):
+        expand_sweep({"lr_final_frac": [0.01, 0.1]})
+
+    with pytest.raises(ValueError, match="cannot sweep lr_final_frac"):
+        expand_sweep({"lr_schedule": ["constant", "cosine"], "lr_final_frac": [0.01, 0.1]})
+
+
+def test_sweeping_final_frac_with_a_schedule_is_allowed():
+    configs = expand_sweep({"lr_schedule": "cosine", "lr_final_frac": [0.01, 0.1]})
+    assert len({run_name(c) for c in configs}) == 2
+
+
+@pytest.mark.parametrize("spec,match", [
+    ({"lr_schedule": "linear"}, "unknown lr_schedule"),
+    ({"lr_schedule": "cosine", "lr_final_frac": 0}, r"must be in \(0, 1\]"),
+    ({"lr_schedule": "cosine", "lr_final_frac": 2.0}, r"must be in \(0, 1\]"),
+    ({"lr_final_frac": -1.0}, r"must be in \(0, 1\]"),
+])
+def test_bad_schedule_settings_fail_at_expansion(spec, match):
+    with pytest.raises(ValueError, match=match):
+        expand_sweep(spec)

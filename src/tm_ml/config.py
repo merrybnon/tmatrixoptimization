@@ -17,6 +17,7 @@ sweeping it would mean sweeping the definition of the loss.
 """
 
 import itertools
+import math
 from pathlib import Path
 
 import yaml
@@ -33,6 +34,12 @@ COMMON_DEFAULTS = {
     "batch_size": 32,
     "epochs": 50,
     "lr": 1e-3,
+    # Decay is off by default. `lr_final_frac` is the terminal learning rate as
+    # a fraction of `lr`, and means nothing without a schedule, so a constant-lr
+    # run is coerced back to INERT_LR_FINAL_FRAC in _finalize — otherwise two
+    # runs that train identically would differ in the name and be trained twice.
+    "lr_schedule": "constant",
+    "lr_final_frac": 0.01,
     "weight_decay": 0.0,
     "grad_clip": 5.0,
     # 0 disables early stopping. Determining, because stopping early changes
@@ -86,6 +93,13 @@ NON_DETERMINING = frozenset(RUNTIME_DEFAULTS) | WORKFLOW_FIELDS
 
 POOLING_MODES = ("mean", "deepsets", "attention")
 
+LR_SCHEDULES = ("constant", "cosine", "exponential")
+
+# What "no decay" looks like on disk. Frozen rather than read from the defaults:
+# a constant-lr run is coerced to this value, so moving it would put a spurious
+# token on every constant-lr run and rename them all.
+INERT_LR_FINAL_FRAC = 0.01
+
 MODEL_FIELDS = {
     kind: frozenset(COMMON_DEFAULTS) | frozenset(fields) | NON_DETERMINING
     for kind, fields in MODEL_DEFAULTS.items()
@@ -113,6 +127,12 @@ def _flatten(spec):
         else:
             flat[key] = value
     return flat
+
+
+def _candidates(flat, field):
+    """Every value a field takes across the sweep, whether or not it is an axis."""
+    value = flat.get(field, COMMON_DEFAULTS[field])
+    return value if isinstance(value, list) else [value]
 
 
 def expand_sweep(spec):
@@ -147,6 +167,16 @@ def expand_sweep(spec):
             "single value, or vary a field that names a run."
         )
 
+    # The same hazard one level down: lr_final_frac is inert without a
+    # schedule, so sweeping it against a constant lr collapses those points
+    # onto one directory.
+    if "lr_final_frac" in axes and "constant" in _candidates(flat, "lr_schedule"):
+        raise ValueError(
+            "cannot sweep lr_final_frac with lr_schedule 'constant': it has no "
+            "effect without a schedule, so those points would land in the same "
+            "directory. Set lr_schedule to cosine or exponential."
+        )
+
     fixed = {k: v for k, v in flat.items() if k not in axes}
 
     configs = []
@@ -177,6 +207,20 @@ def _finalize(cfg):
             f"{cfg['val_frac']} + {cfg['test_frac']}"
         )
 
+    if cfg["lr_schedule"] not in LR_SCHEDULES:
+        raise ValueError(
+            f"unknown lr_schedule {cfg['lr_schedule']!r}; expected one of {list(LR_SCHEDULES)}"
+        )
+    if not 0 < cfg["lr_final_frac"] <= 1:
+        raise ValueError(
+            f"lr_final_frac is a fraction of lr and must be in (0, 1], got "
+            f"{cfg['lr_final_frac']!r}"
+        )
+    # Checked before coercing, so a nonsensical value is still reported rather
+    # than quietly discarded.
+    if cfg["lr_schedule"] == "constant":
+        cfg["lr_final_frac"] = INERT_LR_FINAL_FRAC
+
     if kind != "tmvae":
         return
 
@@ -195,6 +239,25 @@ def _finalize(cfg):
             f"beta_warmup_epochs {cfg['beta_warmup_epochs']} exceeds epochs {cfg['epochs']}; "
             "beta would never reach its full value"
         )
+
+
+def lr_at(cfg, epoch):
+    """Learning rate for a 0-indexed epoch, decaying to ``lr * lr_final_frac``.
+
+    Pure arithmetic, kept here so the two schedule fields have exactly one
+    definition and it can be tested without torch. `train.py` calls this each
+    epoch rather than building a torch scheduler, which keeps the resolved
+    config the only description of a run.
+    """
+    lr, schedule = cfg["lr"], cfg["lr_schedule"]
+    if schedule == "constant" or cfg["epochs"] < 2:
+        return lr
+
+    final = lr * cfg["lr_final_frac"]
+    progress = min(max(epoch, 0), cfg["epochs"] - 1) / (cfg["epochs"] - 1)
+    if schedule == "cosine":
+        return final + (lr - final) * 0.5 * (1 + math.cos(math.pi * progress))
+    return lr * cfg["lr_final_frac"] ** progress
 
 
 def load_sweep(path):

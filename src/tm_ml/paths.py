@@ -75,6 +75,8 @@ ABBREV = {
     "batch_size": "bs",
     "epochs": "e",
     "lr": "lr",
+    "lr_schedule": "sch",
+    "lr_final_frac": "lff",
     "weight_decay": "wd",
     "grad_clip": "gc",
     "patience": "pat",
@@ -110,6 +112,8 @@ NAME_BASELINE = {
         "batch_size": 32,
         "epochs": 50,
         "lr": 1e-3,
+        "lr_schedule": "constant",
+        "lr_final_frac": 0.01,
         "weight_decay": 0.0,
         "grad_clip": 5.0,
         "patience": 0,
@@ -200,11 +204,12 @@ def resolve(run):
 def config_guard(run_dir, cfg):
     """Record the config, refusing to reuse a directory trained under another.
 
-    The run name only carries fields that differ from their defaults, so
-    changing a default changes what every unnamed run means. Under Snakemake a
-    checkpoint newer than its inputs makes the train rule look satisfied, and
-    the run would be reported done without retraining. This is the check that
-    turns that into an error.
+    The name cannot carry a field the baseline does not know about, and a
+    re-baselining changes what every existing name means. Under Snakemake a
+    checkpoint newer than its inputs makes the train rule look satisfied, so
+    either would otherwise be reported done without retraining. This is the
+    check that turns that into an error, and it reads the stored config rather
+    than the name, so it holds whatever the name happens to say.
     """
     run_dir = Path(run_dir)
     run_dir.mkdir(parents=True, exist_ok=True)
