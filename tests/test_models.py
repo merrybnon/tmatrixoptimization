@@ -50,14 +50,15 @@ def permute_T(P, T):
     return P @ T @ P.T
 
 
+BASE = dict(n_nodes=6, d_model=32, n_heads=4, d_ff=64, encoder_layers=3, decoder_layers=2)
+
 CONFIGS = [
-    dict(n_nodes=6, d_model=32, n_heads=4, d_ff=64, encoder_layers=3, decoder_layers=2),
-    dict(
-        n_nodes=6, d_model=32, n_heads=4, d_ff=64, encoder_layers=3, decoder_layers=2,
-        d_global=4,
-    ),
+    BASE,
+    dict(BASE, d_global=4),
+    dict(BASE, pooling="mean"),
+    dict(BASE, pooling="attention"),
 ]
-IDS = ["node-only", "hybrid"]
+IDS = ["node-only", "hybrid", "mean-pool", "attention-pool"]
 
 
 @pytest.mark.parametrize("cfg", CONFIGS, ids=IDS)
@@ -243,3 +244,26 @@ def test_recon_is_zero_for_a_perfect_reconstruction():
     loss = tmvae_loss(Out(), T, torch.zeros(2, dtype=torch.float64), config)
     assert abs(loss.recon.item()) < 1e-9
     assert loss.kl.item() == 0.0
+
+
+@pytest.mark.parametrize("mode,width", [("mean", 8), ("deepsets", 64), ("attention", 64)])
+def test_pool_shape_and_invariance(mode, width):
+    """Every mode collapses the node axis, and none of them can see the order."""
+    from tm_ml.models import NodePool
+
+    torch.manual_seed(0)
+    config = TMVAEConfig(n_nodes=6, d_latent=8, predictor_hidden=64, pooling=mode)
+    pool = NodePool(config).double().eval()
+    assert pool.out_dim == width
+
+    z = torch.randn(4, 6, 8, dtype=torch.float64)
+    P = permutation(6)
+    assert pool(z).shape == (4, width)
+    assert torch.allclose(pool(P @ z), pool(z), atol=TOL)
+
+
+def test_unknown_pooling_is_refused_at_construction():
+    from tm_ml.models import NodePool
+
+    with pytest.raises(ValueError, match="unknown pooling"):
+        NodePool(TMVAEConfig(pooling="softmax"))

@@ -30,6 +30,7 @@ class TMVAEConfig:
     edge_hidden: int = 32
     pair_hidden: int = 128
     predictor_hidden: int = 64
+    pooling: str = "deepsets"
     dropout: float = 0.0
     log_eps: float = 1e-20
     beta: float = 1.0
@@ -219,6 +220,68 @@ class EquivariantLayer(nn.Module):
         return h + self.drop(self.ff(self.norm_ff(h)))
 
 
+class NodePool(nn.Module):
+    """Collapse node latents to one invariant vector: ``(B, n, d) -> (B, out_dim)``.
+
+    This is the only invariant step in the predictor, and the reason ascent
+    commutes with relabelling — everything after it has no node axis to permute.
+
+    Three modes, in increasing order of machinery:
+
+    - ``mean``: the raw average, phi = identity.
+    - ``deepsets``: ``rho(mean(phi(z)))``, Zaheer et al. as actually stated.
+    - ``attention``: one learned seed query attending over the nodes, the PMA
+      block of Set Transformer, which weights nodes instead of averaging them.
+
+    ``mean`` is here as a baseline rather than as a real option. Wagstaff et al.
+    (ICML 2019) show a mean- or sum-decomposable function needs phi's output
+    width to be at least the set size to represent every continuous invariant
+    function on sets that big; at n = 20 against d_latent = 8, the raw average
+    is below that bound before the missing nonlinearity is even counted.
+    ``predictor_hidden = 64`` clears it, so ``deepsets`` is not capacity-limited
+    and ``attention`` is a claim about inductive bias, to be settled by sweeping
+    the two rather than by argument.
+    """
+
+    def __init__(self, config):
+        super().__init__()
+        self.mode = config.pooling
+        d_hidden = config.predictor_hidden
+
+        if self.mode == "mean":
+            self.phi = nn.Identity()
+            self.out_dim = config.d_latent
+            return
+
+        if self.mode not in ("deepsets", "attention"):
+            raise ValueError(
+                f"unknown pooling {self.mode!r}; expected mean, deepsets or attention"
+            )
+
+        self.phi = nn.Sequential(
+            nn.Linear(config.d_latent, d_hidden),
+            nn.GELU(),
+            nn.Linear(d_hidden, d_hidden),
+        )
+        self.out_dim = d_hidden
+
+        if self.mode == "attention":
+            # One seed query, so the softmax runs over the 20 nodes and the
+            # result is a convex combination of them — invariant, like the mean,
+            # but with learned weights.
+            self.seed = nn.Parameter(torch.randn(d_hidden) * d_hidden**-0.5)
+            self.to_kv = nn.Linear(d_hidden, 2 * d_hidden)
+
+    def forward(self, z):
+        h = self.phi(z)
+        if self.mode != "attention":
+            return h.mean(1)
+
+        k, v = self.to_kv(h).chunk(2, dim=-1)
+        q = self.seed.expand(h.shape[0], 1, -1)
+        return F.scaled_dot_product_attention(q, k, v).squeeze(1)
+
+
 class TMVAE(nn.Module):
     """Encoder, decoder and property predictor over a 20-node complete digraph.
 
@@ -267,8 +330,9 @@ class TMVAE(nn.Module):
             nn.Linear(cfg.pair_hidden, 1),
         )
 
+        self.pool = NodePool(cfg)
         self.predictor = nn.Sequential(
-            nn.Linear(cfg.d_latent + cfg.d_global, cfg.predictor_hidden),
+            nn.Linear(self.pool.out_dim + cfg.d_global, cfg.predictor_hidden),
             nn.GELU(),
             nn.Linear(cfg.predictor_hidden, cfg.predictor_hidden),
             nn.GELU(),
@@ -334,14 +398,19 @@ class TMVAE(nn.Module):
     def predict(self, z, z_global):
         """Pool over nodes, then an MLP: invariant, so it can predict a scalar.
 
-        Mean rather than sum only for conditioning; n is fixed at 20, so the
-        two differ by a constant the next linear layer absorbs. Sum being the
-        expressive choice is an argument about multisets of varying size.
+        `NodePool` is where the node axis dies and the whole predictor becomes
+        invariant. Everything here is an ordinary MLP on a vector with no node
+        structure, which is the point of pooling first.
+
+        Mean rather than sum inside the pool only for conditioning; n is fixed
+        at 20, so the two differ by a constant the next linear layer absorbs.
+        Sum being the expressive choice is an argument about multisets of
+        varying size.
 
         Emits log(decay exponent), not the exponent: the target runs 48.8 to
         2041.6 and is right-skewed. The log is the caller's to take.
         """
-        return self.predictor(torch.cat([z.mean(1), z_global], dim=-1)).squeeze(-1)
+        return self.predictor(torch.cat([self.pool(z), z_global], dim=-1)).squeeze(-1)
 
     def forward(self, T, sample=True):
         """Encode, sample, decode and predict.
