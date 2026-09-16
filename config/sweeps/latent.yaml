@@ -28,6 +28,9 @@ model:
 training:
   parent_path: initial_testing/initial_sweep
   epochs: 300
-  lr_schedule: cosine
-  lr_final_frac: 0.05
   log_every: 50
+  # Learning rate is deliberately left constant. The first 300-epoch run used a
+  # cosine decay to 5%, and nothing established that it was doing anything — so
+  # it is off until it earns a place, which keeps two fewer tokens out of every
+  # run name. `initial_testing/TMVAE_b0p15-bw20-e300-lff0p05-schcosine_Tom1000`
+  # is the matched pair to compare against.

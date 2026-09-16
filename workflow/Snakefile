@@ -90,7 +90,7 @@ rule ingest:
     log:
         "data/processed/{drop}/ingest.log",
     shell:
-        "python -m tm_ml.ingest --drop {wildcards.drop} 2>&1 | tee {log}"
+        "python -u -m tm_ml.ingest --drop {wildcards.drop} 2>&1 | tee {log}"
 
 
 rule train:
@@ -120,10 +120,12 @@ rule train:
         runtime=240,
     shell:
         # tee, not a redirect, so a run's progress shows live without a second
-        # `tail -f`. Snakemake prefixes shell commands with `set -euo pipefail`,
+        # `tail -f`. `-u` is what makes that true: Python block-buffers stdout
+        # when it is a pipe, so without it a 300-epoch log stays empty until the
+        # job exits. Snakemake prefixes shell commands with `set -euo pipefail`,
         # so a crashed stage still fails the rule rather than reporting tee's
         # exit status.
-        "python -m tm_ml.train --config {params.configfile} --run {wildcards.run} "
+        "python -u -m tm_ml.train --config {params.configfile} --run {wildcards.run} "
         "--set num_threads={threads} 2>&1 | tee {log}"
 
 
@@ -144,7 +146,7 @@ rule evaluate:
         mem_mb=4000,
         runtime=30,
     shell:
-        "python -m tm_ml.evaluate --run {wildcards.run} --num_threads {threads} "
+        "python -u -m tm_ml.evaluate --run {wildcards.run} --num_threads {threads} "
         "2>&1 | tee {log}"
 
 
@@ -167,7 +169,7 @@ rule visualize:
         mem_mb=4000,
         runtime=30,
     shell:
-        "python -m tm_ml.visualize --run {wildcards.run} --num_threads {threads} "
+        "python -u -m tm_ml.visualize --run {wildcards.run} --num_threads {threads} "
         "2>&1 | tee {log}"
 
 
@@ -191,4 +193,4 @@ rule benchmarks:
         "results/logs/benchmarks.log",
     threads: 1
     shell:
-        "python -m tm_ml.benchmarks --csv {output.table} 2>&1 | tee {log}"
+        "python -u -m tm_ml.benchmarks --csv {output.table} 2>&1 | tee {log}"
