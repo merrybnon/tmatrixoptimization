@@ -45,7 +45,7 @@ HISTORY_FIELDS = (
     ("epoch", "lr", "beta", "gamma")
     + tuple(f"train_{t}" for t in LOSS_TERMS)
     + tuple(f"val_{t}" for t in LOSS_TERMS)
-    + ("seconds",)
+    + ("train_score", "val_score", "seconds")
 )
 
 
@@ -113,6 +113,21 @@ def run_epoch(model, loader, model_cfg, device, optimizer=None, grad_clip=0.0):
             seen += len(T)
 
     return {term: value / seen for term, value in totals.items()}
+
+
+def selection_score(losses, cfg):
+    """The objective at the *configured* weights, not the epoch's own.
+
+    Under warmup beta and gamma change every epoch, so ranking epochs on the
+    loss they were trained against compares different objectives — an early
+    epoch scores well largely because beta was still small, and the checkpoint
+    that wins does so by accident. Recomputing from terms already measured
+    costs nothing and makes the epochs commensurable.
+
+    `total` stays in the history as the quantity actually optimized that epoch;
+    this is the one that selects and stops.
+    """
+    return losses["recon"] + cfg["beta"] * losses["kl"] + cfg["gamma"] * losses["prop"]
 
 
 def assert_first_step_is_sane(model, loader, model_cfg, device):
@@ -203,6 +218,10 @@ def train(cfg):
         )
         val_losses = run_epoch(model, loaders["val"], epoch_cfg, device)
 
+        scores = {
+            "train_score": selection_score(train_losses, cfg),
+            "val_score": selection_score(val_losses, cfg),
+        }
         row = {
             "epoch": epoch,
             "lr": lr,
@@ -211,13 +230,14 @@ def train(cfg):
             "seconds": round(time.time() - epoch_start, 3),
             **{f"train_{k}": v for k, v in train_losses.items()},
             **{f"val_{k}": v for k, v in val_losses.items()},
+            **scores,
         }
         history.append(row)
 
-        # Selection is on the val objective at the epoch's own weights. It is
-        # the quantity being optimized, so it is the honest thing to rank on.
-        if val_losses["total"] < best["score"]:
-            best = {"score": val_losses["total"], "epoch": epoch}
+        # Selection is on the configured-weight score, so warmup cannot make an
+        # early epoch look good by charging it less for its KL.
+        if scores["val_score"] < best["score"]:
+            best = {"score": scores["val_score"], "epoch": epoch}
             since_best = 0
             torch.save(
                 {
@@ -228,7 +248,7 @@ def train(cfg):
                     "target_scaler": splits.scaler.as_dict(),
                     "epoch": epoch,
                     "score": best["score"],
-                    "metric": "val_total",
+                    "metric": "val_score",
                 },
                 run_dir / paths.CHECKPOINT,
             )
@@ -239,6 +259,7 @@ def train(cfg):
             print(
                 f"  epoch {epoch:4d}  lr {lr:.2e}  "
                 f"train {train_losses['total']:9.3f}  val {val_losses['total']:9.3f}  "
+                f"score {scores['val_score']:9.3f}  "
                 f"(recon {val_losses['recon']:8.3f}  kl {val_losses['kl']:7.3f}  "
                 f"prop {val_losses['prop']:7.4f}  log_recon {val_losses['log_recon']:6.3f})"
                 + ("  *" if best["epoch"] == epoch else "")
@@ -259,7 +280,8 @@ def train(cfg):
         "splits": splits.sizes,
         "target_scaler": splits.scaler.as_dict(),
         "best_epoch": best["epoch"],
-        "best_val_total": best["score"],
+        "best_val_score": best["score"],
+        "selection_metric": "val_score, at the configured beta and gamma",
         "epochs_run": len(history),
         "stopped_early": stopped_early,
         "seconds": round(time.time() - started, 1),
@@ -269,7 +291,7 @@ def train(cfg):
     }
     (run_dir / paths.TRAIN_META).write_text(json.dumps(meta, indent=2) + "\n")
 
-    print(f"  best val_total {best['score']:.4f} at epoch {best['epoch']}, {meta['seconds']}s")
+    print(f"  best val_score {best['score']:.4f} at epoch {best['epoch']}, {meta['seconds']}s")
     return meta
 
 
