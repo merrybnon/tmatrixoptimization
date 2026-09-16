@@ -6,7 +6,7 @@ name is a pure function of the resolved config, so the workflow can compute
 every output path before torch is imported — which is what makes the sweep a
 Snakemake DAG rather than a shell loop.
 
-The name carries the fields that differ from their defaults, so a default run
+The name carries the fields that differ from `NAME_BASELINE`, so a baseline run
 is ``TMVAE_Tom1000`` and a two-axis sweep reads as what it varied:
 
     TMVAE_Tom1000
@@ -14,20 +14,44 @@ is ``TMVAE_Tom1000`` and a two-axis sweep reads as what it varied:
     TMVAE_dg4-pattention_Tom1000
 
 That is injective over the determining fields: two configs differing anywhere
-differ in the token list, since a field at its default contributes no token and
+differ in the token list, since a field at the baseline contributes no token and
 a field away from it contributes one carrying its value.
 
-Injectivity depends on every determining field having an abbreviation, so
-`run_name` refuses to name a config with an unregistered one rather than
-quietly omitting it. Forgetting that registration is the failure this design
-exists to prevent: two points of a sweep sharing a directory and overwriting
-each other with no error anywhere.
+**The baseline is frozen, and is not the same thing as the defaults.**
+`config.py`'s defaults are what you get when a sweep does not say; this is what
+names are measured against, and it must not move. Diffing against the live
+defaults instead would make the defaults part of the on-disk contract, with two
+consequences, one loud and one silent:
+
+- raise the default epochs from 50 to 100 and a new default run claims
+  ``TMVAE_Tom1000``, the directory a 50-epoch run already occupies. `config_guard`
+  catches that, but only by locking the directory out;
+- then ask for 50 again and it is named ``TMVAE_e50_Tom1000`` — a second
+  directory holding a byte-identical config, retrained for nothing, and a
+  duplicate row in the benchmarks table. Nothing catches that one at all.
+
+Against a frozen baseline both disappear: a name depends only on the config, so
+one config is always one directory whatever the defaults happen to be. The cost
+is that names lengthen as the defaults drift away from the baseline — a field
+whose default moved carries its token on every run, reading as unusual when it
+is merely current. Re-baselining fixes that and invalidates every existing name,
+so it is a migration to do deliberately, with `results/` cleared.
+
+Injectivity also depends on every determining field appearing in both registries
+below, so `run_name` refuses to name a config with a field missing from either
+rather than quietly omitting it. That omission is the failure this design exists
+to prevent: two points of a sweep sharing a directory and overwriting each other
+with no error anywhere.
+
+A field added after the baseline was frozen takes as its baseline value the one
+that reproduces the behaviour from before it existed — usually its default — so
+adding it renames nothing.
 """
 
 import json
 from pathlib import Path
 
-from tm_ml.config import NON_DETERMINING, defaults_for
+from tm_ml.config import NON_DETERMINING
 
 RESULTS_ROOT = Path("results")
 
@@ -74,6 +98,40 @@ ABBREV = {
 
 NAMED_SEPARATELY = frozenset({"model", "drop"})
 
+# Frozen 2026-09-16. What run names are measured against — NOT the defaults.
+# Editing a value here renames every run that used it, so do it only as a
+# deliberate migration with results/ cleared. Changing a default in config.py is
+# free and renames nothing.
+NAME_BASELINE = {
+    "tmvae": {
+        "seed": 0,
+        "val_frac": 0.1,
+        "test_frac": 0.1,
+        "batch_size": 32,
+        "epochs": 50,
+        "lr": 1e-3,
+        "weight_decay": 0.0,
+        "grad_clip": 5.0,
+        "patience": 0,
+        "standardize_target": True,
+        "d_model": 64,
+        "n_heads": 8,
+        "d_ff": 128,
+        "encoder_layers": 4,
+        "decoder_layers": 2,
+        "d_latent": 8,
+        "d_global": 0,
+        "edge_hidden": 32,
+        "pair_hidden": 128,
+        "predictor_hidden": 64,
+        "pooling": "deepsets",
+        "dropout": 0.0,
+        "beta": 1.0,
+        "gamma": 1.0,
+        "beta_warmup_epochs": 0,
+    },
+}
+
 _duplicates = {a for a in ABBREV.values() if list(ABBREV.values()).count(a) > 1}
 if _duplicates:
     raise RuntimeError(f"ABBREV is not injective; reused: {sorted(_duplicates)}")
@@ -99,8 +157,8 @@ def determining_fields(cfg):
 
 
 def _tokens(cfg):
-    """One token per determining field that differs from its default."""
-    defaults = defaults_for(cfg["model"])
+    """One token per determining field that differs from the frozen baseline."""
+    baseline = NAME_BASELINE[cfg["model"]]
     fields = set(determining_fields(cfg)) - NAMED_SEPARATELY
 
     unregistered = sorted(fields - set(ABBREV))
@@ -112,10 +170,19 @@ def _tokens(cfg):
             "run directory."
         )
 
+    unbaselined = sorted(fields - set(baseline))
+    if unbaselined:
+        raise ValueError(
+            f"no run-name baseline for {', '.join(unbaselined)}. Add it to "
+            f"paths.NAME_BASELINE[{cfg['model']!r}], at the value that reproduces "
+            "how runs behaved before the field existed, so adding it renames "
+            "nothing. Without it two configs could share a run directory."
+        )
+
     return [
         f"{ABBREV[f]}{_fmt(cfg[f])}"
         for f in sorted(fields)
-        if cfg[f] != defaults[f]
+        if cfg[f] != baseline[f]
     ]
 
 

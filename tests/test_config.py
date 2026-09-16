@@ -8,8 +8,11 @@ import json
 
 import pytest
 
+from tm_ml import config as C
 from tm_ml.config import apply_cli_overrides, defaults_for, expand_sweep, load_sweep
-from tm_ml.paths import ABBREV, config_guard, determining_fields, run_name
+from tm_ml.paths import (
+    ABBREV, NAME_BASELINE, config_guard, determining_fields, run_name,
+)
 
 
 def test_empty_sweep_is_one_default_run():
@@ -94,12 +97,15 @@ def test_load_sweep_reads_a_file(tmp_path):
 # --- naming ---------------------------------------------------------------
 
 
-def test_default_run_name_is_bare():
-    assert run_name(defaults_for("tmvae")) == "TMVAE_Tom1000"
+def test_baseline_run_name_is_bare():
+    cfg = defaults_for("tmvae") | NAME_BASELINE["tmvae"]
+    assert run_name(cfg) == "TMVAE_Tom1000"
 
 
-def test_only_non_default_fields_appear():
-    cfg = defaults_for("tmvae") | {"d_global": 4, "pooling": "attention"}
+def test_only_off_baseline_fields_appear():
+    cfg = defaults_for("tmvae") | NAME_BASELINE["tmvae"] | {
+        "d_global": 4, "pooling": "attention",
+    }
     assert run_name(cfg) == "TMVAE_dg4-pattention_Tom1000"
 
 
@@ -157,3 +163,39 @@ def test_config_guard_refuses_a_changed_determining_field(tmp_path):
     config_guard(tmp_path / "run", defaults_for("tmvae"))
     with pytest.raises(SystemExit, match="d_latent: stored 8 vs requested 16"):
         config_guard(tmp_path / "run", defaults_for("tmvae") | {"d_latent": 16})
+
+
+# --- the frozen baseline --------------------------------------------------
+
+
+def test_baseline_covers_exactly_the_determining_fields():
+    """Drift either way is a silent collision waiting to happen."""
+    fields = set(determining_fields(defaults_for("tmvae"))) - {"model", "drop"}
+    assert fields == set(NAME_BASELINE["tmvae"])
+
+
+def test_an_unbaselined_determining_field_is_refused(monkeypatch):
+    monkeypatch.setitem(ABBREV, "brand_new_knob", "bnk")
+    cfg = defaults_for("tmvae") | {"brand_new_knob": 3}
+    with pytest.raises(ValueError, match="no run-name baseline for brand_new_knob"):
+        run_name(cfg)
+
+
+def test_moving_a_default_does_not_rename_an_existing_run(monkeypatch):
+    """Case 1: raising the default must not claim the old run's directory."""
+    trained = defaults_for("tmvae") | NAME_BASELINE["tmvae"]
+    assert run_name(trained) == "TMVAE_Tom1000"
+
+    monkeypatch.setitem(C.COMMON_DEFAULTS, "epochs", 100)
+    assert run_name(trained) == "TMVAE_Tom1000", "an existing run was renamed"
+    assert run_name(defaults_for("tmvae")) == "TMVAE_e100_Tom1000"
+
+
+def test_asking_for_the_old_default_reuses_the_old_directory(monkeypatch):
+    """Case 2: the same config must not be retrained under a second name."""
+    trained = defaults_for("tmvae") | NAME_BASELINE["tmvae"]
+    monkeypatch.setitem(C.COMMON_DEFAULTS, "epochs", 100)
+
+    again = defaults_for("tmvae") | {"epochs": 50}
+    assert again == trained
+    assert run_name(again) == run_name(trained) == "TMVAE_Tom1000"

@@ -21,6 +21,9 @@ from pathlib import Path
 
 import yaml
 
+# Changing a default here is free and renames nothing: run names are measured
+# against the frozen `paths.NAME_BASELINE`, not against these. A default says
+# what you get when a sweep stays silent; the baseline says what a name means.
 COMMON_DEFAULTS = {
     "model": "tmvae",
     "drop": "Tom1000",
