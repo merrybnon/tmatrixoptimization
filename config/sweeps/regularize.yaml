@@ -1,0 +1,33 @@
+# Regularization x beta, replicated over three seeds.
+#
+# Rationale: across the 12 runs in `docs/benchmarks/runs.csv`, reconstruction
+# tracks beta cleanly and property generalization does not move at all —
+# val_prop sits in 0.26..0.49 regardless of d_latent, lr_final_frac or epochs,
+# while the property head overfits 4-5x at the selected checkpoint (train_prop
+# 0.05..0.08 against val_prop 0.27..0.32). Every one of those runs had
+# dropout = 0 and weight_decay = 0, so the two levers that act on that gap have
+# never been turned on. Seeds are an axis because the R2 ordering so far is
+# single-seed and non-monotone in every axis swept.
+#
+# A 2x2x2 factorial replicated three times: 24 runs, ~200s each.
+#
+#   pixi run -e ml pipeline --configfile config/sweeps/regularize.yaml -c4 --resources gpu=2 -n
+#   pixi run -e ml pipeline --configfile config/sweeps/regularize.yaml -c4 --resources gpu=2
+
+model:
+  d_latent: 8
+  beta: [0.05, 0.15]
+  beta_warmup_epochs: 20
+  dropout: [0.0, 0.1]
+
+training:
+  parent_path: initial_testing/regularize_sweep
+  seed: [0, 1, 2]
+  weight_decay: [0.0, 0.001]
+  epochs: 600
+  lr_schedule: cosine
+  lr_final_frac: 0.05
+  log_every: 50
+
+runtime:
+  gpu: auto
