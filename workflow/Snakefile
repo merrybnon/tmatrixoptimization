@@ -166,6 +166,13 @@ rule visualize:
         "results/{run}/logs/visualize.log",
     threads: 2
     resources:
+        # visualize opens a card exactly like the two stages above it: load_run
+        # puts the model on a device and collect() is a real forward pass. It
+        # held no gpu token, so it slipped the budget that serializes the others
+        # and could run beside a training job — a second context on a card
+        # nobody accounted for, measured at ~600 MB for this model, plus
+        # whichever card `auto` happened to like at that moment.
+        gpu=1,
         mem_mb=4000,
         runtime=30,
     shell:
