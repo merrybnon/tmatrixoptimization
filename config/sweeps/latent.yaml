@@ -19,17 +19,17 @@
 # a flat file would behave identically. Six points at roughly two minutes each.
 
 model:
-  d_latent: [4, 8, 16]
-  beta: [0.05, 0.15]
+  d_latent: 8
+  beta: 0.05
   # Short, because beta is below the collapse threshold in both arms and warmup
   # is no longer doing the work it was asked to do at beta = 1.
   beta_warmup_epochs: 20
 
 training:
-  parent_path: initial_testing/initial_sweep
-  epochs: 300
+  parent_path: initial_testing/second_sweep
+  epochs: 1000
   lr_schedule: cosine
-  lr_final_frac: 0.05
+  lr_final_frac: [0.05, 0.1, 0.25, 0.5]
   log_every: 50
   # Decay earns its place on stability rather than on accuracy. A matched pair at
   # d_latent = 8, beta = 0.15, same seed, differing only in the schedule:
@@ -43,3 +43,14 @@ training:
   # A constant rate is still oscillating when it stops, so which checkpoint gets
   # kept depends on where the bounce lands — the same fragility the
   # configured-weight selection score was added to remove.
+
+runtime:
+  # Pinned rather than auto because auto resolves by free memory, and on this
+  # box that is the wrong axis. At the time of writing cuda:0 is full (81/82 GB
+  # held by a four-day CPU-bound job whose workers each keep a context) at 0%
+  # util, cuda:2 has the most free memory but sits at ~64% util under someone
+  # else's job, and cuda:1 is idle with ~60 GB free. _most_free would pick
+  # cuda:2 and queue behind the contention. Non-determining, so this neither
+  # renames the runs nor reaches config_guard — drop it back to auto once the
+  # machine is quiet.
+  gpu: cuda:1
