@@ -107,3 +107,99 @@ Decision: **build the hook, default it off** — `d_global: int = 0` in `TMVAECo
 
 ### Next steps
 - **Direct optimization without the VAE, as a baseline.** Parameterize a matrix by free logits, apply the masked row softmax, train a predictor directly on T, ascend the logits. Expected to find adversarial matrices — the predictor is only accurate near the data, and nothing confines ascent to that region across 360 free dimensions — which is precisely the argument for the latent, and better demonstrated than asserted. If it does *not* go adversarial, that is important information about how easy the problem is. Related but distinct from the combinatorial edge-editing baseline in `miscSources.md` (arXiv 2008.05589), which a reviewer will also ask for.
+
+## 2026-09-16 — the pipeline end to end, and what the first trained models say
+
+`models.py` finished and committed, then the seven modules around it, then the Snakefile that chains them. `ingest → train → evaluate → visualize → benchmarks` now runs as one DAG; the six-point sweep in `config/sweeps/latent.yaml` is 21 jobs in 5m12s. 158 tests.
+
+The first real runs produced two findings that were predicted in the notes and are now measured, plus one that was not predicted at all.
+
+### The package
+
+| module | what it owns |
+|---|---|
+| `models.py` | the VAE, the predictor, the loss |
+| `config.py` | defaults, sweep expansion, validation, the three schedule evaluators |
+| `paths.py` | run naming, the frozen name baseline, `config_guard`, shared filenames |
+| `datasets.py` | splits, and the target transform — log always, standardizing fitted on train alone |
+| `device.py` | `gpu: auto` picks the least-used card; claim files still unwritten |
+| `train.py` | three-layer config resolution, the loop, the run directory |
+| `evaluate.py` | property, reconstruction, validity and latent-structure metrics |
+| `visualize.py` | four figures, each stamped with provenance |
+| `benchmarks.py` | the curated ledger at `docs/benchmarks/runs.csv` |
+
+`config.py` and `paths.py` import nothing heavier than yaml and pathlib, which is what lets the Snakefile expand a sweep and compute every output path before torch is loaded — 27 of the tests run in 0.06s for that reason.
+
+### models.py, and the pooling that was missing
+
+The 09-15 design went in unchanged, and the ascent-equivariance check from that entry now runs and passes rather than being asserted. Checks hold in float64 across four configurations — node-only, hybrid, mean pooling, attention pooling — at machine precision.
+
+One real gap surfaced while writing it. The predictor was `ρ(mean(z_i))`, but Deep Sets is `ρ(Σ φ(z_i))` — φ was the identity. **Wagstaff et al. (ICML 2019)** sharpen this: a mean- or sum-decomposable function needs φ's output at least as wide as the set to represent every continuous invariant function on sets that size. At n = 20 against `d_latent = 8`, the original pooling was under the bound before the missing nonlinearity was even counted. Fixed with a `NodePool` carrying three modes behind a `pooling` config field — `mean` as a baseline, `deepsets` (φ at width 64, which clears the bound) as the default, and `attention` (Set Transformer's PMA) as a sweep axis rather than an argument. 233,326 parameters at defaults.
+
+### Naming runs against a frozen baseline
+
+Run names carry only the fields that differ from a baseline, so a sweep's directory listing reads as what it varied: `TMVAE_dg4-pattention_Tom1000`. Diffing against the live *defaults* would have been wrong, and the failure has two halves — one loud, one silent. Raise the default epochs and a new default run claims the directory an old run occupies, which `config_guard` catches but only by locking it out; then ask for the old value again and it gets a second directory holding a byte-identical config. `paths.NAME_BASELINE` is frozen separately from the defaults, so a default can move freely and nothing renames. Both halves are regression tests.
+
+Two registries enforce the invariant: a determining field with no abbreviation, or no baseline entry, makes `run_name` refuse rather than quietly omit it — the omission being exactly how two sweep points come to share a directory. A field added later is baselined at the value reproducing prior behaviour, so adding one renames nothing. That absorbed three new fields today without touching an existing name.
+
+### Schedules, and one bug they exposed
+
+Added `lr_schedule` (cosine, exponential, off by default), `lr_warmup_epochs`, and `gamma_warmup_epochs` alongside the existing `beta_warmup_epochs`, all evaluated by pure functions in `config.py` so the resolved config stays the only description of a run. `lr_final_frac` is inert without a schedule, so `_finalize` coerces it to a frozen value and sweeping it against a constant rate is refused — otherwise two runs that train identically get two directories.
+
+The bug: model selection ranked on `val_total` **at each epoch's own β and γ**. Under warmup those are different objectives, so an early epoch scores well largely because β is small — the first 300-epoch run's checkpoint came from epoch 10 for exactly that reason. Selection now uses a score recomputed at the *configured* weights from terms already measured. During warmup the gap is visible in the history: at epoch 0 the old rule charged 17.7 nats less than an equivalent post-warmup epoch.
+
+### Posterior collapse at β = 1 is the objective's optimum, not an optimization failure
+
+The first GPU run used a 150-epoch β warmup and collapsed anyway — KL squeezed 131 → 84 → 66 → 26 → 0.15, ending bit-identical to a model that ignores its latent. The warmup bought 100 good epochs and then threw them away.
+
+The arithmetic says why. At epoch 20 the informative solution saved **31.8 nats of reconstruction** and cost **66.6 nats of KL**, so it beats collapse only when
+
+```
+β  <  31.8 / 66.6  =  0.478
+```
+
+At β = 1, refusing to pay 66.6 to save 31.8 is correct. **No warmup schedule fixes this** — warmup controls when you reach the optimum, not what the optimum is. At β = 0.15 the KL parks at ~64 nats for 280 epochs and the model trains properly: test R² 0.716 on log y, median relative error 21.2%, against R² 0.385 for the β = 1 run.
+
+### What the metrics found
+
+**Forward KL is blind to the weak links, and by a lot.** `architecture.md` predicted this; the by-magnitude table measures it. Bottom decile of true entries (1.7e-09 .. 3.4e-05) is off by a mean of **5.18 nats — a factor of 178** — while contributing 0.0015 of probability-space error. Top decile is off by 0.51 (×1.7). The `reconstruction.png` panels localize it further: the pale rows of a true matrix, nodes with weak out-flow, come back as deep red bands, over-predicted by 100–1000×. That is the case for the auxiliary log-space term the note held in reserve.
+
+**The latent is effectively two dimensions per node.** PCA of the pooled node latents: 0.955, 0.889, 0.042, then everything below 1e-3. Two components clear the posterior noise floor, participation ratio 2.03. Node latents are pooled as `(N × 20, d)` rather than flattened per graph — coordinate *k* means the same thing for every node because the encoder applies one map, but node 3 of one matrix has nothing to do with node 3 of another.
+
+### The latent sweep
+
+`d_latent ∈ {4, 8, 16}` × `β ∈ {0.05, 0.15}`, written to separate two readings of that finding: too much capacity, or too high a price.
+
+| d_latent | β | R² | median rel. | recon | log_recon | KL | above noise |
+|---|---|---|---|---|---|---|---|
+| 4 | 0.05 | 0.689 | 0.234 | 3.214 | 1.351 | 94.26 | 3 |
+| 4 | 0.15 | 0.553 | 0.261 | 5.677 | 1.719 | 63.31 | 2 |
+| 8 | 0.05 | 0.637 | 0.201 | 3.008 | 1.381 | 92.96 | 3 |
+| 8 | 0.15 | **0.716** | 0.212 | 4.601 | 1.897 | 63.63 | 2 |
+| 16 | 0.05 | 0.575 | 0.298 | 3.470 | 1.480 | 97.03 | 3 |
+| 16 | 0.15 | 0.587 | 0.262 | 5.907 | 1.919 | 61.95 | 2 |
+
+**β sets the effective width; `d_latent` does not.** Every β = 0.05 run uses three components and ~95 nats, every β = 0.15 run uses two and ~63, across a 4× range of nominal width. The model buys the code the price allows, not the code the container permits — so `d_latent = 4` is not a bottleneck and `d_latent = 16` is 128 unused dimensions per graph. The capacity axis is spent.
+
+Reconstruction responds cleanly to β (recon 3.0–3.5 against 4.6–5.9; `log_recon` ~25% better at the lower price). **R² does not follow** — it is non-monotone in both axes and uncorrelated with reconstruction. Single seeds, 800 training examples, and the training curves already show the property term separating train from val, so the honest reading is that reconstruction is measurable here and prediction is noisy.
+
+### Learning-rate decay buys stability, not accuracy
+
+Matched pair at `d_latent = 8, β = 0.15`, same seed, schedule the only difference:
+
+| | best | last-50 mean | last-50 sd | last-50 range |
+|---|---|---|---|---|
+| cosine → 5% | 14.132 | 14.244 | **0.053** | **0.251** |
+| constant | 14.247 | 14.955 | **0.372** | **2.211** |
+
+The headline gap (R² 0.716 vs 0.691) is within what one seed can say. The variance is not: 7× the sd, 9× the range. A constant rate is still oscillating when it stops, so which checkpoint survives depends on where the bounce lands — the same fragility the configured-weight selection score was added to remove. Decay stays on.
+
+### Housekeeping
+
+`docs/notes/repo_structure.md` is new and holds the layout plus its reasoning, including the `data.yaml` decision, which was implemented in code on 09-14 but never written down — `README.md` and `CLAUDE.md` both still advertised a `config/data.yaml` that was decided against and never created. `parent_path` was added so runs file into folders under `results/`; it is non-determining, so moving a run between folders does not lock it out.
+
+### Next steps
+- **More seeds before trusting any property number.** The sweep's R² ordering is non-monotone in both axes and uncorrelated with reconstruction, which on single seeds is not a result. Three seeds at `d_latent = 8` across β ∈ {0.05, 0.10, 0.15} is nine runs and about eight minutes; `d_latent` can be dropped as an axis now that β is known to set the effective width.
+- **The auxiliary log-space reconstruction term.** The by-magnitude table is the evidence `architecture.md` asked for before adding it: the weakest decile is off by ×178 while paying nothing. Weak links plausibly govern the timescale being predicted, so this is the reconstruction change most likely to move the property.
+- **Direct optimization without the VAE, as a baseline.** Carried over from 09-15 and still the thing that justifies the latent. Parameterize a matrix by free logits, apply the masked row softmax, train a predictor directly on T, ascend the logits. Expected to find adversarial matrices across 360 free dimensions; if it does not, that is important information about how easy the problem is. Distinct from the combinatorial edge-editing baseline (arXiv 2008.05589), which now has a placeholder row in the ledger.
+- **`device.py` claim files, before any multi-GPU sweep.** `gpu: auto` picks the least-used card, so concurrent jobs launched together all pick the same one. Harmless at this model size — three runs shared one A100 at 2.5 GB and 10% — but it is the documented gap.
