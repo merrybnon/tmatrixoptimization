@@ -7,11 +7,18 @@ than to ``CUDA_VISIBLE_DEVICES``, which has no effect once torch has
 initialized CUDA in-process. Resolving also claims the card as the process's
 current device rather than only placing tensors on it — see ``_claim``.
 
-Not yet handled: two runs launched together by ``snakemake --resources gpu=2``
-both read free memory before either has allocated anything, see the same idle
-card and pick it, deterministically. The fix is an advisory claim file per
-process, skipped when its PID is gone. Worth writing when the first multi-GPU
-sweep is launched, and not before — a single run is unaffected.
+Not yet handled: ``snakemake --resources gpu=2`` puts every concurrent run on
+one card. Two things cause that and only the second one matters. The runs do
+read free memory before any of them has allocated — measured at the same
+millisecond, against the ~5s a context takes to become visible to anyone else —
+but closing that window changes nothing on its own, because `_most_free` is a
+stateless argmax and one run is far too small to move it: a run costs ~0.6 GiB
+of context here while the cards routinely differ by 8 GiB, so the same card
+keeps winning for another dozen runs after the first has landed on it. Verified
+by starting a second run 15s after the first had allocated — it saw the 0.6 GiB
+go and picked the same card anyway. So a claim has to make a card ineligible to
+a sibling rather than merely subtract what the sibling took. A single run is
+unaffected either way.
 """
 
 import torch
