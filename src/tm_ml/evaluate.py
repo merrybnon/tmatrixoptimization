@@ -48,15 +48,29 @@ ACTIVE_UNIT_THRESHOLD = 0.01
 MAGNITUDE_BINS = 10
 
 
-def load_run(run, device):
-    """Rebuild the model and its splits from a run directory alone."""
+def load_run(run, device=None):
+    """Rebuild the model and its splits from a run directory alone.
+
+    Which card that is comes from the run's own `gpu` unless `device` overrides
+    it. A configured card has to reach every stage that opens one, or pinning a
+    run away from a card that is full or contended moves only the training and
+    leaves the stages after it to pick for themselves. `gpu: auto` is recorded
+    as `auto` rather than as whatever it resolved to that day, so the default
+    still re-chooses here — the card training landed on may since have filled.
+
+    The checkpoint is read onto the cpu first because the config that names the
+    card is inside it; there is nothing to resolve until it has been opened.
+    Costs one cpu-side copy of a small state dict, paid once per stage.
+    """
     run_dir = paths.resolve(run)
     checkpoint_path = run_dir / paths.CHECKPOINT
     if not checkpoint_path.exists():
         raise SystemExit(f"{checkpoint_path} does not exist; train the run first")
 
-    checkpoint = torch.load(checkpoint_path, map_location=device, weights_only=False)
+    checkpoint = torch.load(checkpoint_path, map_location="cpu", weights_only=False)
     cfg = checkpoint["config"]
+    if device is None:
+        device = device_module.resolve(cfg["gpu"])
 
     model = TMVAE(TMVAEConfig(**checkpoint["model_config"])).to(device)
     model.load_state_dict(checkpoint["state_dict"])
@@ -64,7 +78,7 @@ def load_run(run, device):
 
     splits = load_splits(cfg)
     scaler = TargetScaler(**checkpoint["target_scaler"])
-    return run_dir, checkpoint, cfg, model, splits, scaler
+    return run_dir, checkpoint, cfg, model, splits, scaler, device
 
 
 @torch.no_grad()
@@ -329,10 +343,7 @@ def dims_to(v, fraction):
 def evaluate(run, batch_size=None, num_threads=1):
     """Score one run and write its ``metrics.json``."""
     torch.set_num_threads(num_threads)
-    # Picked fresh rather than taken from the run's config: evaluation is a
-    # separate job and the card the training happened to land on may be busy.
-    device = device_module.resolve("auto")
-    run_dir, checkpoint, cfg, model, splits, scaler = load_run(run, device)
+    run_dir, checkpoint, cfg, model, splits, scaler, device = load_run(run)
     model_cfg = TMVAEConfig(**checkpoint["model_config"])
 
     data = collect(model, splits.test, model_cfg, device, batch_size or cfg["batch_size"])

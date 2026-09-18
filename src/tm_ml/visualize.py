@@ -29,7 +29,6 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt  # noqa: E402
 from matplotlib.colors import LinearSegmentedColormap, TwoSlopeNorm  # noqa: E402
 
-from tm_ml import device as device_module
 from tm_ml import evaluate as evaluate_module
 from tm_ml import paths
 from tm_ml.ingest import git_commit
@@ -324,8 +323,7 @@ def visualize(run, num_threads=1):
     torch.set_num_threads(num_threads)
     style()
 
-    device = device_module.resolve("auto")
-    run_dir, checkpoint, cfg, model, splits, scaler = evaluate_module.load_run(run, device)
+    run_dir, checkpoint, cfg, model, splits, scaler, device = evaluate_module.load_run(run)
     metrics_path = run_dir / paths.METRICS
     if not metrics_path.exists():
         raise SystemExit(f"{metrics_path} does not exist; run evaluate first")
