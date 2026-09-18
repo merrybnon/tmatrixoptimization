@@ -1,28 +1,9 @@
-# Latent capacity against the KL weight.
-#
 #   pixi run -e ml pipeline --configfile config/sweeps/latent.yaml -c4 --resources gpu=1 -n
 #   pixi run -e ml pipeline --configfile config/sweeps/latent.yaml -c4 --resources gpu=1
-#
-# The question this sweep exists to answer. At d_latent = 8, beta = 0.15 the
-# trained model used 2 of its 8 per-node dimensions: PCA put 90% of the variance
-# in two components, and only two cleared the posterior noise floor. Two readings
-# of that, and they want opposite things:
-#
-#   - the bottleneck is wider than the data needs, and d_latent = 4 loses nothing
-#   - beta is still charging too much per dimension, and a lower one opens more
-#
-# Crossing the two separates them. If the active count tracks beta and ignores
-# d_latent, the rate is the binding constraint; if it tracks neither, two
-# dimensions is what a 20-node landscape actually costs.
-#
-# Sections are for reading only — every field is flattened before expansion, so
-# a flat file would behave identically. Six points at roughly two minutes each.
 
 model:
   d_latent: 8
   beta: 0.05
-  # Short, because beta is below the collapse threshold in both arms and warmup
-  # is no longer doing the work it was asked to do at beta = 1.
   beta_warmup_epochs: 20
 
 training:
@@ -31,26 +12,6 @@ training:
   lr_schedule: cosine
   lr_final_frac: [0.05, 0.1, 0.25, 0.5]
   log_every: 50
-  # Decay earns its place on stability rather than on accuracy. A matched pair at
-  # d_latent = 8, beta = 0.15, same seed, differing only in the schedule:
-  #
-  #                     best     last-50 mean   last-50 sd   last-50 range
-  #   cosine -> 5%    14.132        14.244         0.053         0.251
-  #   constant        14.247        14.955         0.372         2.211
-  #
-  # The headline gap (R2 0.716 vs 0.691) is within what one seed can tell us.
-  # The variance is not: 7x the sd and 9x the range over the last fifty epochs.
-  # A constant rate is still oscillating when it stops, so which checkpoint gets
-  # kept depends on where the bounce lands — the same fragility the
-  # configured-weight selection score was added to remove.
 
 runtime:
-  # Pinned rather than auto because auto resolves by free memory, and on this
-  # box that is the wrong axis. At the time of writing cuda:0 is full (81/82 GB
-  # held by a four-day CPU-bound job whose workers each keep a context) at 0%
-  # util, cuda:2 has the most free memory but sits at ~64% util under someone
-  # else's job, and cuda:1 is idle with ~60 GB free. _most_free would pick
-  # cuda:2 and queue behind the contention. Non-determining, so this neither
-  # renames the runs nor reaches config_guard — drop it back to auto once the
-  # machine is quiet.
-  gpu: cuda:1
+  gpu: auto

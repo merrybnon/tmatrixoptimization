@@ -59,7 +59,7 @@ def test_empty_axis_is_refused():
 
 def test_sweeping_a_runtime_field_is_refused():
     with pytest.raises(ValueError, match="cannot sweep gpu"):
-        expand_sweep({"gpu": ["cuda:0", "cuda:1"]})
+        expand_sweep({"gpu": [0, 1]})
 
 
 @pytest.mark.parametrize("spec,match", [
@@ -112,7 +112,7 @@ def test_only_off_baseline_fields_appear():
 
 
 def test_runtime_fields_never_reach_the_name():
-    cfg = defaults_for("tmvae") | {"gpu": "cuda:3", "num_threads": 8}
+    cfg = defaults_for("tmvae") | {"gpu": 3, "num_threads": 8}
     assert run_name(cfg) == "TMVAE_Tom1000"
 
 
@@ -158,7 +158,7 @@ def test_config_guard_writes_then_accepts_the_same_config(tmp_path):
 
 def test_config_guard_ignores_runtime_changes(tmp_path):
     config_guard(tmp_path / "run", defaults_for("tmvae"))
-    config_guard(tmp_path / "run", defaults_for("tmvae") | {"gpu": "cuda:1"})
+    config_guard(tmp_path / "run", defaults_for("tmvae") | {"gpu": 1})
 
 
 def test_config_guard_refuses_a_changed_determining_field(tmp_path):
