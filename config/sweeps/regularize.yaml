@@ -30,4 +30,4 @@ training:
   log_every: 50
 
 runtime:
-  gpu: auto
+  gpu: 2
