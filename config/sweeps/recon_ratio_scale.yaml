@@ -11,6 +11,25 @@
 #
 #   pixi run -e ml pipeline --configfile config/sweeps/recon_ratio_scale.yaml -c4 --resources gpu=1
 
+# Result, three seeds each: (2, 6) does NOT reproduce (1, 3). KL 151.4 vs 117.1,
+# log_recon 0.516 vs 0.650, scatter 0.335 vs 0.404. It lands with the (2, 3)
+# cell instead — same lambda_recon, different lambda_log — so the ratio is not
+# the axis and the reconstruction block's weight against beta is. The caveat in
+# `recon_ratio.yaml` therefore bites: part of what the lambda_log ladder in
+# `log_recon.yaml` measured was beta being diluted and latent capacity bought.
+#
+# What survives that caveat is the decomposition, because the lambda_recon = 0
+# cell separates the two effects. It has the lowest capacity in the sweep
+# (KL 17.6, one active unit) and yet the second-smallest bias, +0.045. If
+# centering came from capacity, that cell would be the worst; it is not. So
+# lambda_log sets where the log-space error sits and capacity sets how tight it
+# is, and the ladder's bias result stands while its recon and scatter gains are
+# partly capacity.
+#
+# Per doubling, lambda_recon buys about 3x the capacity lambda_log does — 1 -> 2
+# adds 26 nats of KL, 3 -> 6 adds 8.5 — which follows from recon weighting an
+# entry by T_ij against this term's flat lambda_log / 380.
+
 model:
   d_latent: 8
   beta: 0.05
