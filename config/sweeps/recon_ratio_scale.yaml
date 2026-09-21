@@ -1,0 +1,31 @@
+# Scale control for `recon_ratio.yaml`: same ratio, double the weights.
+#
+# (lambda_recon 2, lambda_log 6) has the identical recon : log_recon ratio as the
+# (1, 3) cell of the ratio sweep, but twice the weight on the reconstruction
+# block relative to beta and gamma. If the two cells agree, the ratio is the
+# real axis and the dilution argued for in `recon_ratio.yaml` does not bite at
+# this magnitude; if they differ, the balance against beta is doing the work and
+# every conclusion drawn from the lambda_log ladder needs that caveat attached.
+#
+# Three runs, one per seed, read against the lambda_recon = 1.0 column next door.
+#
+#   pixi run -e ml pipeline --configfile config/sweeps/recon_ratio_scale.yaml -c4 --resources gpu=1
+
+model:
+  d_latent: 8
+  beta: 0.05
+  beta_warmup_epochs: 20
+  dropout: 0.1
+  lambda_log: 6.0
+  lambda_recon: 2.0
+
+training:
+  parent_path: initial_testing/recon_ratio_sweep
+  seed: [0, 1, 2]
+  epochs: 600
+  lr_schedule: cosine
+  lr_final_frac: 0.05
+  log_every: 50
+
+runtime:
+  gpu: 2

@@ -1,0 +1,48 @@
+# The recon : log_recon ratio, replicated over three seeds.
+#
+# Rationale: `log_recon.yaml` swept lambda_log with recon pinned at an implicit
+# 1, which conflates two things. Raising lambda_log adds tail pressure, but
+# because Adam is near scale-invariant in the total, it also lowers beta and
+# gamma *relative* to the reconstruction block — visible in that sweep as
+# beta*KL drifting 4.99 -> 6.96 nats while beta never moved, and KL climbing
+# 99.8 -> 139.3. Some of "lambda_log improves recon" is therefore just "lambda_log
+# buys latent capacity by diluting beta", and the ladder cannot separate them.
+#
+# lambda_recon makes the mix an axis of its own. Holding lambda_log at 3 — where
+# the log_recon sweep put the bias at +0.018 in log10, effectively solved — and
+# varying lambda_recon from 2 down to 0 sweeps the ratio across 8x without
+# touching lambda_log.
+#
+# The cell that matters is lambda_recon = 0: forward KL removed entirely, with
+# log_recon the only reconstruction pressure. It answers whether recon still
+# earns its place. Validity does not depend on it — the masked row softmax makes
+# every output a transition matrix by construction — so what is at stake is the
+# ELBO reading and the weighting by probability mass, which is the only thing
+# telling the model a 0.68 entry matters more than a 1e-6 one.
+#
+# weight_decay is omitted: 12 matched pairs put its effect inside one standard
+# error on every metric, and the field defaults to 0.
+#
+# 15 runs, ~9 min each. `recon_ratio_scale.yaml` is the companion control.
+#
+#   pixi run -e ml pipeline --configfile config/sweeps/recon_ratio.yaml -c4 --resources gpu=1 -n
+#   pixi run -e ml pipeline --configfile config/sweeps/recon_ratio.yaml -c4 --resources gpu=1
+
+model:
+  d_latent: 8
+  beta: 0.05
+  beta_warmup_epochs: 20
+  dropout: 0.1
+  lambda_log: 3.0
+  lambda_recon: [0.0, 0.25, 0.5, 1.0, 2.0]
+
+training:
+  parent_path: initial_testing/recon_ratio_sweep
+  seed: [0, 1, 2]
+  epochs: 600
+  lr_schedule: cosine
+  lr_final_frac: 0.05
+  log_every: 50
+
+runtime:
+  gpu: 2
