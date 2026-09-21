@@ -38,7 +38,7 @@ COLUMNS = (
     "gamma_warmup_epochs", "lr", "lr_schedule", "epochs", "seed",
     # the property, which is what the project is for
     "test_r2", "skill_vs_train_mean", "test_median_relative_error",
-    "test_rmse_exponent",
+    "test_rmse_exponent", "test_calibration_slope", "test_calibration_slope_stderr",
     # reconstruction, in both spaces
     "test_recon", "test_log_recon_mae", "test_recon_rmse",
     # the latent
