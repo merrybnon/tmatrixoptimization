@@ -1,6 +1,21 @@
 #   pixi run -e ml pipeline --configfile config/sweeps/log_recon_wd0.yaml -c4 --resources gpu=1 -n
 #   pixi run -e ml pipeline --configfile config/sweeps/log_recon_wd0.yaml -c4 --resources gpu=1
 
+# Checked 2026-09-21 against the matching seed-2 runs at wd 1e-3: the lambda_log
+# ladder replicates with decay off (log_recon 1.196 -> 0.515, mean log10 bias
+# +0.330 -> +0.005, weakest decile x16 -> x1.1, recon improving throughout), so
+# nothing in that result rested on the inherited weight_decay.
+#
+# The wd contrast these four support looks significant pooled — recon -0.115
+# +/- 0.050 favouring 1e-3 — and is not. All four share split seed 2, so the
+# pairs are correlated draws from one split, and the lambda_log = 0 pair shows
+# the same lean at a lambda where 12 pairs already found nothing. Per seed, the
+# wd delta on recon is +0.141, +0.066, -0.104 for seeds 0, 1, 2: seed 2 is the
+# one split where decay helps, and the between-seed spread is seven times the
+# pooled effect. No sign of a lambda_log interaction either — the delta does not
+# grow along the ladder. Settling it at lambda_log > 0 rather than inferring it
+# would take seeds 0 and 1 at one lambda.
+
 model:
   d_latent: 8
   beta: 0.05
