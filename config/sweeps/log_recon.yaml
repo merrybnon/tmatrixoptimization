@@ -1,0 +1,49 @@
+# The log-space reconstruction weight, replicated over three seeds.
+#
+# Rationale: `architecture.md` predicted before any training that forward KL
+# would be blind to the weak links, since it weights each term by the true
+# T_ij. Measured on the b0.05 dropout seed-1 run of `regularize.yaml`, the bias
+# is real, signed and monotone in magnitude — the weakest decile of true entries
+# is over-predicted by a mean of +1.26 in log10 (x18) with 97% of entries on the
+# high side, while the strongest three deciles come back slightly low. Fitting
+# the whole test set gives log10 T_hat = 0.689 * log10 T - 0.514, a compression
+# of dynamic range that pushes the tail up and the head down, and the row
+# softmax turns that leak into a 3.0x inflation of the mass held by the weakest
+# ten entries of each row. `log_recon` is the term that sees it.
+#
+# Everything but lambda_log sits at the best cell the regularization sweep
+# found: beta 0.05, dropout 0.1, weight_decay 1e-3, R2 0.766 +/- 0.035.
+#
+# The ladder is geometric around 1.0, which is where the two reconstruction
+# terms cross. Per entry the KL's gradient weight is T_ij and this term's is
+# lambda_log / 380, so lambda_log = 1 puts the crossover at the median entry
+# (2.6e-3): the tail moves from 0.3 upward and the head should not move until
+# far past 10. If recon degrades before log_recon improves, the ladder was
+# wrong and not the term.
+#
+# lambda_log_warmup_epochs stays 0 so this reads as one axis. If the early
+# epochs destabilize, warmup is the follow-up and the field already exists.
+#
+# 15 runs, ~200s each.
+#
+#   pixi run -e ml pipeline --configfile config/sweeps/log_recon.yaml -c4 --resources gpu=2 -n
+#   pixi run -e ml pipeline --configfile config/sweeps/log_recon.yaml -c4 --resources gpu=2
+
+model:
+  d_latent: 8
+  beta: 0.05
+  beta_warmup_epochs: 20
+  dropout: 0.1
+  lambda_log: [0.0, 0.3, 1.0, 3.0, 10.0]
+
+training:
+  parent_path: initial_testing/log_recon_sweep
+  seed: [0, 1, 2]
+  weight_decay: 0.001
+  epochs: 600
+  lr_schedule: cosine
+  lr_final_frac: 0.05
+  log_every: 50
+
+runtime:
+  gpu: 2
