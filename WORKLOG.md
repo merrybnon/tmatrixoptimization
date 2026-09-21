@@ -203,3 +203,52 @@ The headline gap (R² 0.716 vs 0.691) is within what one seed can say. The varia
 - **The auxiliary log-space reconstruction term.** The by-magnitude table is the evidence `architecture.md` asked for before adding it: the weakest decile is off by ×178 while paying nothing. Weak links plausibly govern the timescale being predicted, so this is the reconstruction change most likely to move the property.
 - **Direct optimization without the VAE, as a baseline.** Carried over from 09-15 and still the thing that justifies the latent. Parameterize a matrix by free logits, apply the masked row softmax, train a predictor directly on T, ascend the logits. Expected to find adversarial matrices across 360 free dimensions; if it does not, that is important information about how easy the problem is. Distinct from the combinatorial edge-editing baseline (arXiv 2008.05589), which now has a placeholder row in the ledger.
 - **`device.py` claim files, before any multi-GPU sweep.** `gpu: auto` picks the least-used card, so concurrent jobs launched together all pick the same one. Harmless at this model size — three runs shared one A100 at 2.5 GB and 10% — but it is the documented gap.
+
+## 2026-09-18 — regularization, and where the property overfit actually lives
+
+Read the 13 runs on the ledger, found the one axis every sweep so far had left at zero, and swept it. `config/sweeps/regularize.yaml`: β ∈ {0.05, 0.15} × dropout ∈ {0, 0.1} × weight_decay ∈ {0, 1e-3} × seed ∈ {0, 1, 2}, a 2³ factorial replicated three times, 600 epochs. 24 runs, 1h32m serialized on one A100.
+
+### The diagnosis that motivated it
+
+Reconstruction tracked β cleanly and nothing else — flat in `d_latent`, `lr_final_frac` and epochs. Property generalization tracked *nothing*: `val_prop` sat in 0.26–0.49 across all 13 runs and the R² ordering was non-monotone in every axis, on single seeds. Meanwhile the property head overfit 4–5× at the selected checkpoint (train_prop 0.05–0.08 against val_prop 0.27–0.32) while reconstruction did not overfit there at all. Every one of those runs had `dropout = 0` and `weight_decay = 0`.
+
+### Dropout works, weight decay does nothing
+
+Main effects, 12 runs per level, ± SE of the difference:
+
+| | R² | recon | log_recon | median rel. |
+|---|---|---|---|---|
+| dropout 0 → 0.1 | **+0.045 ± 0.022** | −0.481 ± 0.344 | −0.155 ± 0.095 | **−0.018 ± 0.009** |
+| weight_decay 0 → 1e-3 | −0.009 ± 0.024 | +0.034 ± 0.358 | −0.001 ± 0.101 | +0.002 ± 0.010 |
+| β 0.05 → 0.15 | +0.027 ± 0.023 | **+1.579 ± 0.123** | **+0.438 ± 0.038** | −0.009 ± 0.010 |
+
+Weight decay's largest effect is a quarter of its own standard error. The pooled recon SE is inflated by β dominating that column, so stratify:
+
+```
+beta = 0.05        do 0.0  ->  do 0.1
+  recon           2.905   ->   2.249     -0.656 ± 0.090
+  log_recon       1.365   ->   1.170     -0.195 ± 0.032
+  R2              0.692   ->   0.760     +0.068 ± 0.032
+```
+
+**Dropout improved reconstruction and prediction together**, which is not the usual trade, and the overfit ratio collapsed: val_prop/train_prop 3.52 → 1.85 at β = 0.05, 1.72 → 0.97 at β = 0.15.
+
+### The overfit was in the encoder, not the predictor
+
+The prediction going in was the opposite: weight decay reaches every parameter including the property head, dropout reaches only `EquivariantLayer` (`models.py:216`, used by the encoder's 4 layers and the decoder's 2) and never the head at `models.py:335-339`. If the head were memorizing, weight decay would have been the lever. It was not. The encoder was memorizing 800 graphs into latents; the three-layer head reading them was never the problem.
+
+The mechanism is visible in the latent metrics: dropout *raised* usage rather than lowering it — active units 3.0 → 4.0 and KL 94.2 → 99.5 at β = 0.05. Noise inside the encoder forces a distributed code instead of a few brittle directions.
+
+### The β tension resolves in favour of the low price
+
+With dropout on, β = 0.05 and β = 0.15 tie on R² (0.760 vs 0.764) while β = 0.05 reconstructs nearly twice as well (2.25 vs 4.00). The earlier apparent preference for β = 0.15 was the model compensating for an unregularized encoder.
+
+Best cell — β = 0.05, dropout 0.1, wd 1e-3, three seeds:
+
+| | now | prior best on record |
+|---|---|---|
+| R² | 0.766 ± 0.035 | 0.716 (single seed) |
+| recon | 2.206 ± 0.058 | 4.60 |
+| log_recon | 1.146 ± 0.067 | 1.897 |
+
+Reconstruction better by 2.1×, log_recon by 1.7×, R² up 0.05 and carrying an error bar for the first time.
