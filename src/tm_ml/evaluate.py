@@ -394,6 +394,9 @@ def evaluate(run, batch_size=None, num_threads=1):
         "n_val": splits.sizes["val"],
         "n_test": splits.sizes["test"],
         "split_seed": cfg["seed"],
+        # Determining, and the reconstruction plots read it to say which
+        # objective the by-magnitude panel is showing.
+        "lambda_log": cfg["lambda_log"],
         "best_epoch": checkpoint["epoch"],
         "best_score": checkpoint["score"],
         "best_metric": checkpoint["metric"],

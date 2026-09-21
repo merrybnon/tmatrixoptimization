@@ -256,9 +256,16 @@ def reconstruction(data, metrics, out):
     ax.set_xscale("log")
     ax.set_xlabel("true entry (decile midpoint)")
     ax.set_ylabel("mean absolute log error")
+    # The claim in this title is only true at lambda_log = 0. The log-space term
+    # weights every entry equally, so once it is on, the left of the plot is
+    # exactly what is being paid for and saying otherwise reads as a defect.
+    lambda_log = metrics.get("lambda_log") or 0.0
     ax.set_title(
         "Reconstruction error by size of the true entry — forward KL weights each "
         "term by T_ij, so the left of this plot is nearly free"
+        if not lambda_log else
+        "Reconstruction error by size of the true entry — log-space term at "
+        f"lambda_log {lambda_log:g} weights every entry equally"
     )
     for row in (table[0], table[-1]):
         ax.annotate(
