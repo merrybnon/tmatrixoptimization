@@ -90,6 +90,13 @@ MODEL_DEFAULTS = {
         # what organizes the latent for ascent — so delaying it is a trade, not
         # a free fix.
         "gamma_warmup_epochs": 0,
+        # Weight on the log-space reconstruction term. 0 reproduces the pure
+        # forward KL, which is what every run before 2026-09-21 trained against.
+        "lambda_log": 0.0,
+        # Warmup for the same reason as gamma's: the log term only has a tail
+        # to correct once reconstruction has put mass in roughly the right
+        # places, and from epoch 0 it is the larger gradient on most entries.
+        "lambda_log_warmup_epochs": 0,
     },
 }
 
@@ -118,7 +125,7 @@ POOLING_MODES = ("mean", "deepsets", "attention")
 LR_SCHEDULES = ("constant", "cosine", "exponential")
 
 # Loss weights that can be warmed up, each with a `<name>_warmup_epochs` field.
-LOSS_WEIGHTS = ("beta", "gamma")
+LOSS_WEIGHTS = ("beta", "gamma", "lambda_log")
 
 # What "no decay" looks like on disk. Frozen rather than read from the defaults:
 # a constant-lr run is coerced to this value, so moving it would put a spurious
@@ -306,7 +313,7 @@ def lr_at(cfg, epoch):
 
 
 def loss_weight_at(cfg, name, epoch):
-    """`beta` or `gamma` for a 0-indexed epoch, ramping linearly to its value.
+    """One of `LOSS_WEIGHTS` for a 0-indexed epoch, ramping linearly to its value.
 
     The same shape as `lr_at`'s warmup and for the same reason — one definition
     of what the field means, testable without torch. A weight with no warmup is

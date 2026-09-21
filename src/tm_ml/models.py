@@ -35,6 +35,9 @@ class TMVAEConfig:
     log_eps: float = 1e-20
     beta: float = 1.0
     gamma: float = 1.0
+    # Weight on the log-space reconstruction term. 0 leaves it a pure
+    # diagnostic, which is how every run before 2026-09-21 was trained.
+    lambda_log: float = 0.0
 
 
 @dataclass
@@ -448,7 +451,7 @@ def gaussian_kl(mu, logvar):
 
 
 def tmvae_loss(output, T, log_y, config):
-    """``sum_i KL(T_i || T_hat_i) + beta * KL(q || p) + gamma * (log y_hat - log y)^2``.
+    """``recon + beta * KL(q || p) + gamma * (log y_hat - log y)^2 + lambda_log * log_recon``.
 
     Per-row KL because rows are distributions and this is the categorical
     likelihood written out. Every term is a sum over the graph and a mean over
@@ -483,16 +486,34 @@ def tmvae_loss(output, T, log_y, config):
     )
     kl = kl_node + kl_global
 
-    # Diagnostic only, on T rather than on the target. Forward KL weights each
-    # term by the true T_ij, so it punishes T_hat being too small where truth
-    # is large and barely notices T_hat being too large where truth is tiny —
-    # which is where the weak links live, and they plausibly govern the
-    # timescale being predicted. Unweighted, so every entry counts the same.
-    with torch.no_grad():
-        log_recon = (log_T - log_T_hat)[..., off].abs().mean()
+    # The counterweight to the forward KL, and a pure diagnostic when
+    # lambda_log is 0. Forward KL weights each term by the true T_ij, so it
+    # punishes T_hat being too small where truth is large and barely notices
+    # T_hat being too large where truth is tiny — which is where the weak links
+    # live, and they plausibly govern the timescale being predicted. Unweighted,
+    # so every entry counts the same.
+    #
+    # L1 rather than squared: log errors span ten decades, and a single entry
+    # near the clamp would otherwise set the gradient for its whole row.
+    #
+    # A mean over entries, where `recon` is a sum over them, so the two terms
+    # are deliberately not on one scale. Per entry the KL's weight is T_ij and
+    # this term's is lambda_log / 380; they cross near the median entry, 2.6e-3
+    # at lambda_log = 1. Below the crossover this term decides and above it the
+    # KL still does, which is the intent — it acts on the tail the KL cannot
+    # see, and would not reach the strongest entry in a row until a lambda_log
+    # two orders larger than anything worth running. The definition is unchanged
+    # from when it was diagnostic-only, so the ledger's log_recon column stays
+    # comparable across the change.
+    log_recon = (log_T - log_T_hat)[..., off].abs().mean()
 
     return TMVAELoss(
-        total=recon + config.beta * kl + config.gamma * prop,
+        total=(
+            recon
+            + config.beta * kl
+            + config.gamma * prop
+            + config.lambda_log * log_recon
+        ),
         recon=recon,
         kl=kl,
         prop=prop,

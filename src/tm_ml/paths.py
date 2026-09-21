@@ -104,6 +104,8 @@ ABBREV = {
     "gamma": "g",
     "beta_warmup_epochs": "bw",
     "gamma_warmup_epochs": "gw",
+    "lambda_log": "ll",
+    "lambda_log_warmup_epochs": "llw",
 }
 
 NAMED_SEPARATELY = frozenset({"model", "drop"})
@@ -143,6 +145,10 @@ NAME_BASELINE = {
         "gamma": 1.0,
         "beta_warmup_epochs": 0,
         "gamma_warmup_epochs": 0,
+        # Added 2026-09-21. 0 is how the loss behaved before the term existed,
+        # so every run named before this stays named the same.
+        "lambda_log": 0.0,
+        "lambda_log_warmup_epochs": 0,
     },
 }
 

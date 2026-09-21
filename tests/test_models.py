@@ -6,6 +6,7 @@ about real numerics run on the committed fixture, whose entries reach 1.3e-14
 against an exactly zero diagonal.
 """
 
+import dataclasses
 from pathlib import Path
 
 import numpy as np
@@ -267,3 +268,80 @@ def test_unknown_pooling_is_refused_at_construction():
 
     with pytest.raises(ValueError, match="unknown pooling"):
         NodePool(TMVAEConfig(pooling="softmax"))
+
+
+def test_lambda_log_zero_leaves_the_total_untouched():
+    """The default has to reproduce the pure forward KL exactly, not nearly.
+
+    Every run before the term existed was trained at lambda_log = 0, and the
+    ledger compares them against runs trained after it. If adding the field
+    moved the objective by even a rounding error those numbers stop being
+    commensurable, so this is an exact check rather than a tolerance.
+    """
+    model, n = make(n_nodes=6, d_model=16, n_heads=2, d_ff=16, encoder_layers=1), 6
+    T, log_y = random_T(4, n), torch.randn(4, dtype=torch.float64)
+    out = model(T, sample=False)
+
+    loss = tmvae_loss(out, T, log_y, model.config)
+    expected = loss.recon + model.config.beta * loss.kl + model.config.gamma * loss.prop
+    assert loss.total.item() == expected.item()
+
+
+def test_lambda_log_enters_the_total_and_carries_gradient():
+    """The term has to reach the weights, which is the whole point of the change.
+
+    `log_recon` sat inside `no_grad` as a diagnostic, so the failure this guards
+    against is the term being reported and weighted but still detached — the
+    total would move with lambda_log while the gradient did not.
+    """
+    model, n = make(n_nodes=6, d_model=16, n_heads=2, d_ff=16, encoder_layers=1), 6
+    T, log_y = random_T(4, n), torch.randn(4, dtype=torch.float64)
+
+    out = model(T, sample=False)
+    base = tmvae_loss(out, T, log_y, model.config)
+    weighted = tmvae_loss(out, T, log_y, dataclasses.replace(model.config, lambda_log=2.0))
+
+    assert torch.allclose(weighted.total, base.total + 2.0 * base.log_recon, atol=TOL)
+    assert torch.allclose(weighted.log_recon, base.log_recon, atol=TOL)
+
+    # The decoder is what the term can move; the property head is not, so only
+    # the shared trunk and the pair scorer should see a different gradient.
+    grads = {}
+    for tag, lam in (("off", 0.0), ("on", 2.0)):
+        model.zero_grad()
+        cfg = dataclasses.replace(model.config, lambda_log=lam)
+        tmvae_loss(model(T, sample=False), T, log_y, cfg).total.backward()
+        grads[tag] = {k: p.grad.clone() for k, p in model.named_parameters() if p.grad is not None}
+
+    changed = [k for k in grads["off"] if not torch.allclose(grads["off"][k], grads["on"][k])]
+    assert changed, "lambda_log changed no gradient; the term is still detached"
+
+
+def test_lambda_log_lifts_the_weak_entries():
+    """Training on it should move the tail up-to-down, which is its purpose.
+
+    Fits one batch twice from the same initialization and compares the log-space
+    error on the weakest decile of true entries. Not a claim about the real
+    model, just that the gradient points the way the term is meant to point.
+    """
+    T, log_y = random_T(6, 6, seed=3), torch.randn(6, dtype=torch.float64)
+    off = off_diagonal(6, T.device)
+    log_T = torch.log(T.clamp_min(1e-20))
+
+    errors = {}
+    for tag, lam in (("off", 0.0), ("on", 5.0)):
+        model = make(n_nodes=6, d_model=16, n_heads=2, d_ff=16, encoder_layers=1)
+        model.train()
+        cfg = dataclasses.replace(model.config, lambda_log=lam)
+        opt = torch.optim.Adam(model.parameters(), lr=3e-3)
+        for _ in range(30):
+            opt.zero_grad()
+            tmvae_loss(model(T, sample=False), T, log_y, cfg).total.backward()
+            opt.step()
+        model.eval()
+        out = model(T, sample=False)
+        err = (out.log_T_hat.masked_fill(~off, 0.0) - log_T)[..., off].flatten()
+        weakest = T[..., off].flatten() < torch.quantile(T[..., off].flatten(), 0.1)
+        errors[tag] = err[weakest].mean().item()
+
+    assert errors["on"] < errors["off"], errors

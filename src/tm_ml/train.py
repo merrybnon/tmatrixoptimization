@@ -42,7 +42,7 @@ from tm_ml.models import TMVAE, TMVAEConfig, tmvae_loss
 # per-epoch record cannot disagree.
 LOSS_TERMS = ("total", "recon", "kl", "kl_node", "kl_global", "prop", "log_recon")
 HISTORY_FIELDS = (
-    ("epoch", "lr", "beta", "gamma")
+    ("epoch", "lr", "beta", "gamma", "lambda_log")
     + tuple(f"train_{t}" for t in LOSS_TERMS)
     + tuple(f"val_{t}" for t in LOSS_TERMS)
     + ("train_score", "val_score", "seconds")
@@ -118,16 +118,21 @@ def run_epoch(model, loader, model_cfg, device, optimizer=None, grad_clip=0.0):
 def selection_score(losses, cfg):
     """The objective at the *configured* weights, not the epoch's own.
 
-    Under warmup beta and gamma change every epoch, so ranking epochs on the
-    loss they were trained against compares different objectives — an early
-    epoch scores well largely because beta was still small, and the checkpoint
-    that wins does so by accident. Recomputing from terms already measured
+    Under warmup every weight in `LOSS_WEIGHTS` changes every epoch, so ranking
+    epochs on the loss they were trained against compares different objectives —
+    an early epoch scores well largely because beta was still small, and the
+    checkpoint that wins does so by accident. Recomputing from terms already measured
     costs nothing and makes the epochs commensurable.
 
     `total` stays in the history as the quantity actually optimized that epoch;
     this is the one that selects and stops.
     """
-    return losses["recon"] + cfg["beta"] * losses["kl"] + cfg["gamma"] * losses["prop"]
+    return (
+        losses["recon"]
+        + cfg["beta"] * losses["kl"]
+        + cfg["gamma"] * losses["prop"]
+        + cfg["lambda_log"] * losses["log_recon"]
+    )
 
 
 def assert_first_step_is_sane(model, loader, model_cfg, device):
@@ -211,6 +216,7 @@ def train(cfg):
             model_cfg,
             beta=loss_weight_at(cfg, "beta", epoch),
             gamma=loss_weight_at(cfg, "gamma", epoch),
+            lambda_log=loss_weight_at(cfg, "lambda_log", epoch),
         )
 
         train_losses = run_epoch(
@@ -227,6 +233,7 @@ def train(cfg):
             "lr": lr,
             "beta": epoch_cfg.beta,
             "gamma": epoch_cfg.gamma,
+            "lambda_log": epoch_cfg.lambda_log,
             "seconds": round(time.time() - epoch_start, 3),
             **{f"train_{k}": v for k, v in train_losses.items()},
             **{f"val_{k}": v for k, v in val_losses.items()},
