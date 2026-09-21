@@ -14,6 +14,15 @@
 # Everything but lambda_log sits at the best cell the regularization sweep
 # found: beta 0.05, dropout 0.1, weight_decay 1e-3, R2 0.766 +/- 0.035.
 #
+# The weight_decay here is inherited, not chosen, and should not be copied into
+# the next sweep. Across the 12 matched pairs of `regularize.yaml` — same beta,
+# dropout and seed, wd the only difference — every metric moves less than its
+# own standard error: R2 -0.009 +/- 0.014, recon +0.034 +/- 0.066, log_recon
+# -0.001 +/- 0.016, KL -0.04 +/- 0.26. The seed-to-seed range in R2 is 0.110
+# over the same runs, so the split matters twelve times more than the knob. It
+# is in that cell because some cell had to score highest, not because it does
+# anything. `weight_decay` defaults to 0.0, so omitting the field is enough.
+#
 # The ladder is geometric around 1.0, which is where the two reconstruction
 # terms cross. Per entry the KL's gradient weight is T_ij and this term's is
 # lambda_log / 380, so lambda_log = 1 puts the crossover at the median entry
