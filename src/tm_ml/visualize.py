@@ -196,8 +196,8 @@ def predictions(data, scaler, metrics, out):
     # Resolution below 1 tilts this cloud and is the model being imperfect;
     # calibration away from 1 is the one that means the numbers are wrong.
     ax.set_title(
-        f"Residual in log space — resolution {metrics['test_resolution_slope']:.2f} "
-        f"(expect R²), calibration {metrics['test_calibration_slope']:.2f} (expect 1)"
+        f"Residual in log space — resolution {metrics['test_resolution_slope']:.2f}, "
+        f"calibration {metrics['test_calibration_slope']:.2f}"
     )
 
     fig.tight_layout(rect=(0, 0.03, 1, 1))
