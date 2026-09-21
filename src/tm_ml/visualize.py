@@ -157,6 +157,7 @@ def predictions(data, scaler, metrics, out):
     log_y = scaler.inverse(data["y"].numpy())
     log_y_hat = scaler.inverse(data["y_hat"].numpy())
     true, predicted = np.exp(log_y), np.exp(log_y_hat)
+    slope, intercept, stderr = evaluate_module.calibration_fit(log_y, log_y_hat)
 
     fig, axes = plt.subplots(1, 2, figsize=(10.5, 4.6))
 
@@ -165,6 +166,11 @@ def predictions(data, scaler, metrics, out):
     ax.plot(limits, limits, color=INK_SOFT, linewidth=1.0, linestyle="--", label="exact")
     ax.scatter(true, predicted, s=22, color=TRAIN, edgecolor=SURFACE,
                linewidth=0.5, label="test example")
+    # The fit against the identity line is the whole story of the range: where
+    # the two cross is the only exponent the model gets right on average.
+    grid = np.linspace(np.log(limits[0]), np.log(limits[1]), 200)
+    ax.plot(np.exp(grid), np.exp(slope * grid + intercept), color=INK,
+            linewidth=1.4, label=f"fit, slope {slope:.2f}")
     ax.set_xscale("log")
     ax.set_yscale("log")
     ax.set_xlim(limits)
@@ -181,10 +187,14 @@ def predictions(data, scaler, metrics, out):
     residual = log_y_hat - log_y
     ax.axhline(0.0, color=INK_SOFT, linewidth=1.0, linestyle="--")
     ax.scatter(true, residual, s=22, color=TRAIN, edgecolor=SURFACE, linewidth=0.5)
+    # The same fit, seen as the tilt it puts on the residual: slope − 1.
+    ax.plot(np.exp(grid), (slope - 1.0) * grid + intercept, color=INK, linewidth=1.4)
     ax.set_xscale("log")
     ax.set_xlabel("true decay exponent")
     ax.set_ylabel("log ŷ − log y")
-    ax.set_title("Residual in log space — a trend here is a miscalibrated range")
+    ax.set_title(
+        f"Residual in log space — slope {slope:.2f} ± {stderr:.2f} (1 is calibrated)"
+    )
 
     fig.tight_layout(rect=(0, 0.03, 1, 1))
     footer(fig, metrics)

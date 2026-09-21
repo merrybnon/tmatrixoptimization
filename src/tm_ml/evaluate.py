@@ -111,6 +111,28 @@ def collect(model, dataset, model_cfg, device, batch_size):
     return collected
 
 
+def calibration_fit(log_y, log_y_hat):
+    """Least squares log_y_hat ~ slope * log_y + intercept, and the slope's error.
+
+    A slope under 1 is a compressed range: the head has fallen back on the mean
+    wherever the latent told it nothing, so it over-predicts the small exponents
+    and under-predicts the large ones. The standard error says whether the gap
+    from 1 is worth reading. Everything is in log space, which is where the loss
+    lives and what the residual panel of predictions.png plots.
+    """
+    n = len(log_y)
+    centered = log_y - log_y.mean()
+    sxx = float((centered ** 2).sum())
+    if n < 3 or sxx == 0.0:
+        return None, None, None
+
+    slope = float((centered * (log_y_hat - log_y_hat.mean())).sum() / sxx)
+    intercept = float(log_y_hat.mean() - slope * log_y.mean())
+    residual = log_y_hat - (slope * log_y + intercept)
+    stderr = float(np.sqrt(float((residual ** 2).sum()) / (n - 2) / sxx))
+    return slope, intercept, stderr
+
+
 def property_metrics(data, scaler):
     """Prediction quality, in the training target and back in real units.
 
@@ -133,6 +155,7 @@ def property_metrics(data, scaler):
     log_y, log_y_hat = scaler.inverse(y), scaler.inverse(y_hat)
     exponent, exponent_hat = np.exp(log_y), np.exp(log_y_hat)
     relative = np.abs(exponent_hat - exponent) / exponent
+    slope, intercept, slope_stderr = calibration_fit(log_y, log_y_hat)
 
     return {
         "test_prop": float((residual ** 2).mean()),
@@ -147,6 +170,11 @@ def property_metrics(data, scaler):
         "test_median_relative_error": float(np.median(relative)),
         "test_rmse_exponent": float(np.sqrt(((exponent_hat - exponent) ** 2).mean())),
         "test_exponent_range": [float(exponent.min()), float(exponent.max())],
+        # Slope 1 is a calibrated range; below it the predictions are shrunk
+        # toward the training mean, which no single-number error metric shows.
+        "test_calibration_slope": slope,
+        "test_calibration_intercept": intercept,
+        "test_calibration_slope_stderr": slope_stderr,
         "baseline_note": "trivial only; the strong baseline is combinatorial edge editing",
     }
 
@@ -386,6 +414,10 @@ def report(m):
         f"  property   R2 {m['test_r2']:.3f}  skill vs train mean {m['skill_vs_train_mean']:+.1%}  "
         f"median relative error {m['test_median_relative_error']:.1%}  "
         f"RMSE {m['test_rmse_exponent']:.1f} in exponent units"
+    )
+    print(
+        f"  range      calibration slope {m['test_calibration_slope']:.3f} "
+        f"+/- {m['test_calibration_slope_stderr']:.3f}  (1 is calibrated)"
     )
     print(
         f"  recon      KL {m['test_recon']:.3f}  rmse {m['test_recon_rmse']:.4f}  "

@@ -6,12 +6,14 @@ whose failure is a plausible-looking number rather than an exception.
 
 import json
 
+import numpy as np
 import pytest
 import torch
 
 from tm_ml import evaluate, paths, train
 from tm_ml.datasets import TargetScaler
 from tm_ml.evaluate import (
+    calibration_fit,
     dims_to,
     magnitude_table,
     participation,
@@ -89,6 +91,25 @@ def test_property_metrics_has_no_skill_when_predicting_the_train_mean():
 
     out = property_metrics(data, scaler)
     assert out["skill_vs_train_mean"] == pytest.approx(0.0, abs=1e-6)
+
+
+def test_calibration_fit_reads_a_shrunk_range():
+    """Predictions squeezed toward their own mean give a slope below 1."""
+    log_y = np.linspace(4.0, 7.0, 64)
+    shrunk = log_y.mean() + 0.6 * (log_y - log_y.mean())
+
+    slope, intercept, stderr = calibration_fit(log_y, shrunk)
+
+    assert slope == pytest.approx(0.6)
+    assert intercept == pytest.approx(log_y.mean() * 0.4)
+    assert stderr == pytest.approx(0.0, abs=1e-9)
+
+    perfect, _, _ = calibration_fit(log_y, log_y.copy())
+    assert perfect == pytest.approx(1.0)
+
+
+def test_calibration_fit_declines_a_constant_target():
+    assert calibration_fit(np.full(8, 5.0), np.arange(8.0)) == (None, None, None)
 
 
 def test_validity_metrics_see_a_broken_diagonal():
