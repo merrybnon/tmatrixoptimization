@@ -1,0 +1,37 @@
+# d_latent down to a scalar, replicated over three seeds.
+#
+# Rationale: in `recon_ratio.yaml` the lambda_recon = 0 cell collapsed to one
+# active unit of eight and KL 17.6, and still scored R2 0.806 +/- 0.036 — as well
+# as the four-unit, KL 117 cell beside it. If a near-scalar code predicts the
+# target as well as a wide one, the target is close to a scalar function of T, no
+# amount of reconstruction fidelity will move R2, and that explains why R2 has
+# been flat across every sweep in this repo. This tests it deliberately rather
+# than reading it off a side effect of a broken objective.
+#
+# d_latent is per node, so d_latent = 1 is 20 numbers per graph, one each, not a
+# single graph-level scalar — the same shape the collapse landed in. d_global
+# stays 0, as everywhere else.
+#
+# 12 runs, ~9 min each. The d_latent = 8 column is the control and repeats the
+# lambda_recon = 1 cell of `recon_ratio.yaml` under its own parent_path.
+#
+#   pixi run -e ml pipeline --configfile config/sweeps/latent_width.yaml -c4 --resources gpu=1
+
+model:
+  d_latent: [1, 2, 4, 8]
+  beta: 0.05
+  beta_warmup_epochs: 20
+  dropout: 0.1
+  lambda_log: 3.0
+  lambda_recon: 1.0
+
+training:
+  parent_path: initial_testing/latent_width_sweep
+  seed: [0, 1, 2]
+  epochs: 600
+  lr_schedule: cosine
+  lr_final_frac: 0.05
+  log_every: 50
+
+runtime:
+  gpu: 2
