@@ -252,3 +252,32 @@ Best cell — β = 0.05, dropout 0.1, wd 1e-3, three seeds:
 | log_recon | 1.146 ± 0.067 | 1.897 |
 
 Reconstruction better by 2.1×, log_recon by 1.7×, R² up 0.05 and carrying an error bar for the first time.
+
+## 2026-09-21 — the residual tilt is resolution, not miscalibration
+
+Started from a question about `predictions.png`'s second panel, whose title claimed a trend in the residuals meant a miscalibrated range. It does not, and the panel has been retitled.
+
+### What the tilt is
+
+Regressing the prediction on the truth gives 0.787 ± 0.042 on the b0.05 dropout seed-1 run — the model covers 79% of the true dynamic range. Regressing the truth on the prediction gives 0.998 ± 0.053. Both are the same 100 points; least squares is not symmetric in which variable goes on the left.
+
+For any conditional mean, the tower property gives Cov(ŷ, y) = Var(ŷ), so the first slope is forced to Var(ŷ)/Var(y) = R² and the second to exactly 1. Measured here: 0.787 against a variance ratio of 0.789 and R² 0.780, and the two slopes multiply to r². Shrinkage toward the mean is what an MSE head is supposed to do when the input does not determine the target; it is not a fixable defect, and de-shrinking by a val-fitted slope raised test RMSE from 0.3469 to 0.3713.
+
+The practical rule: plot the residual against the prediction, not against the truth. Against the truth the expected slope is `resolution - 1`, negative for every imperfect model. Against the prediction it is `calibration - 1`, zero, so flat is the correct null and a tilt there is real.
+
+### Sampling noise is not the cause
+
+The property head trains on sampled `z` and evaluates on `mu`, which looked like a candidate. Drawing 64 z per test graph: the induced jitter in the prediction is 0.116 log units against a signal spread of 0.660, nearly unbiased (+0.016), and attenuation of that size predicts a slope near 0.97. Predicting from `z` at eval gives 0.780 against 0.787 from `mu`. Ruled out.
+
+The latent shows why the gap is small. Of 8 dimensions, 4 are dead — μ ≈ 0, σ ≈ 1, pure prior noise in training and exactly 0 at eval. The 4 live ones run σ 0.15 to 0.86 against μ spreads of 0.51 to 1.00, and the pool averages independent per-node noise over 20 nodes before the MLP sees it.
+
+### The sweep, both slopes
+
+All 24 regularization runs re-evaluated and redrawn.
+
+| | range | mean |
+|---|---|---|
+| resolution | 0.707 – 0.906 | 0.804 |
+| calibration | 0.874 – 1.040 | 0.940 |
+
+Resolution tracks R² cell by cell, as it must, and neither β nor dropout nor weight decay moves it beyond seed noise. Calibration sits below 1 in 22 of 24 runs, the mild-overfit signature of predictions a few percent too extreme. The three seeds are the three splits and give 0.910, 0.964 and 0.946, so the split-to-split spread is as large as the shortfall — a consistent lean on three quasi-independent measurements, not yet a demonstrated bias.
