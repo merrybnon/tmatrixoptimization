@@ -38,6 +38,11 @@ class TMVAEConfig:
     # Weight on the log-space reconstruction term. 0 leaves it a pure
     # diagnostic, which is how every run before 2026-09-21 was trained.
     lambda_log: float = 0.0
+    # Weight on the forward-KL reconstruction term. 1.0 is how it entered the
+    # loss unweighted; 0 drops it, leaving log_recon as the only reconstruction
+    # pressure. Explicit so the recon:log_recon ratio is an axis rather than a
+    # side effect of scaling lambda_log.
+    lambda_recon: float = 1.0
 
 
 @dataclass
@@ -451,7 +456,7 @@ def gaussian_kl(mu, logvar):
 
 
 def tmvae_loss(output, T, log_y, config):
-    """``recon + beta * KL(q || p) + gamma * (log y_hat - log y)^2 + lambda_log * log_recon``.
+    """``lambda_recon * recon + beta * KL + gamma * prop + lambda_log * log_recon``.
 
     Per-row KL because rows are distributions and this is the categorical
     likelihood written out. Every term is a sum over the graph and a mean over
@@ -509,7 +514,7 @@ def tmvae_loss(output, T, log_y, config):
 
     return TMVAELoss(
         total=(
-            recon
+            config.lambda_recon * recon
             + config.beta * kl
             + config.gamma * prop
             + config.lambda_log * log_recon

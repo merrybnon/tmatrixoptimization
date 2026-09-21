@@ -36,6 +36,7 @@ COLUMNS = (
     # what was varied
     "d_latent", "d_global", "pooling", "beta", "gamma", "beta_warmup_epochs",
     "gamma_warmup_epochs", "lambda_log", "lambda_log_warmup_epochs",
+    "lambda_recon", "lambda_recon_warmup_epochs",
     "dropout", "weight_decay", "lr", "lr_schedule", "epochs", "seed",
     # the property, which is what the project is for
     "test_r2", "skill_vs_train_mean", "test_median_relative_error",

@@ -397,6 +397,7 @@ def evaluate(run, batch_size=None, num_threads=1):
         # Determining, and the reconstruction plots read it to say which
         # objective the by-magnitude panel is showing.
         "lambda_log": cfg["lambda_log"],
+        "lambda_recon": cfg["lambda_recon"],
         "best_epoch": checkpoint["epoch"],
         "best_score": checkpoint["score"],
         "best_metric": checkpoint["metric"],

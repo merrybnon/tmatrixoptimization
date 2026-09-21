@@ -106,6 +106,9 @@ ABBREV = {
     "gamma_warmup_epochs": "gw",
     "lambda_log": "ll",
     "lambda_log_warmup_epochs": "llw",
+    # Not "lr*": that prefix is the learning rate's.
+    "lambda_recon": "lrec",
+    "lambda_recon_warmup_epochs": "lrecw",
 }
 
 NAMED_SEPARATELY = frozenset({"model", "drop"})
@@ -149,6 +152,9 @@ NAME_BASELINE = {
         # so every run named before this stays named the same.
         "lambda_log": 0.0,
         "lambda_log_warmup_epochs": 0,
+        # 1.0 is the unweighted sum the loss used before the field existed.
+        "lambda_recon": 1.0,
+        "lambda_recon_warmup_epochs": 0,
     },
 }
 

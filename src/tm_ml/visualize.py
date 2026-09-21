@@ -256,17 +256,22 @@ def reconstruction(data, metrics, out):
     ax.set_xscale("log")
     ax.set_xlabel("true entry (decile midpoint)")
     ax.set_ylabel("mean absolute log error")
-    # The claim in this title is only true at lambda_log = 0. The log-space term
-    # weights every entry equally, so once it is on, the left of the plot is
-    # exactly what is being paid for and saying otherwise reads as a defect.
+    # Which objective the run actually trained against, since the shape of this
+    # curve means opposite things under each. Forward KL weights by T_ij and so
+    # buys the left of the plot nothing; the log-space term weights every entry
+    # alike, so once it is on, the left is what is being paid for and calling it
+    # free reads as a defect.
     lambda_log = metrics.get("lambda_log") or 0.0
-    ax.set_title(
-        "Reconstruction error by size of the true entry — forward KL weights each "
-        "term by T_ij, so the left of this plot is nearly free"
-        if not lambda_log else
-        "Reconstruction error by size of the true entry — log-space term at "
-        f"lambda_log {lambda_log:g} weights every entry equally"
-    )
+    lambda_recon = metrics.get("lambda_recon", 1.0)
+    head = "Reconstruction error by size of the true entry — "
+    if not lambda_log:
+        tail = "forward KL weights each term by T_ij, so the left of this plot is nearly free"
+    elif not lambda_recon:
+        tail = f"log-space term only at lambda_log {lambda_log:g}, every entry weighted alike"
+    else:
+        tail = (f"lambda_recon {lambda_recon:g} weights by T_ij, lambda_log "
+                f"{lambda_log:g} weights every entry alike")
+    ax.set_title(head + tail)
     for row in (table[0], table[-1]):
         ax.annotate(
             f"{row['mean_abs_log_error']:.2f}  (×{np.exp(row['mean_abs_log_error']):.0f})",

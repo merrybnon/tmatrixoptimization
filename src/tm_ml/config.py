@@ -97,6 +97,12 @@ MODEL_DEFAULTS = {
         # to correct once reconstruction has put mass in roughly the right
         # places, and from epoch 0 it is the larger gradient on most entries.
         "lambda_log_warmup_epochs": 0,
+        # Weight on the forward-KL reconstruction term, 1.0 being how it was
+        # summed into the loss before it had a name. An axis so that the
+        # recon:log_recon ratio can be varied without scaling lambda_log, which
+        # would also change both terms' weight relative to beta and gamma.
+        "lambda_recon": 1.0,
+        "lambda_recon_warmup_epochs": 0,
     },
 }
 
@@ -125,7 +131,7 @@ POOLING_MODES = ("mean", "deepsets", "attention")
 LR_SCHEDULES = ("constant", "cosine", "exponential")
 
 # Loss weights that can be warmed up, each with a `<name>_warmup_epochs` field.
-LOSS_WEIGHTS = ("beta", "gamma", "lambda_log")
+LOSS_WEIGHTS = ("beta", "gamma", "lambda_log", "lambda_recon")
 
 # What "no decay" looks like on disk. Frozen rather than read from the defaults:
 # a constant-lr run is coerced to this value, so moving it would put a spurious

@@ -345,3 +345,58 @@ def test_lambda_log_lifts_the_weak_entries():
         errors[tag] = err[weakest].mean().item()
 
     assert errors["on"] < errors["off"], errors
+
+
+def test_lambda_recon_defaults_to_the_unweighted_sum():
+    """1.0 has to be exactly how `recon` entered the loss before it had a name.
+
+    Same reasoning as the lambda_log check: the ledger compares runs from both
+    sides of the change, so the default must be an identity, not an approximate
+    one.
+    """
+    model, n = make(n_nodes=6, d_model=16, n_heads=2, d_ff=16, encoder_layers=1), 6
+    T, log_y = random_T(4, n), torch.randn(4, dtype=torch.float64)
+    out = model(T, sample=False)
+    assert model.config.lambda_recon == 1.0
+
+    loss = tmvae_loss(out, T, log_y, model.config)
+    expected = loss.recon + model.config.beta * loss.kl + model.config.gamma * loss.prop
+    assert loss.total.item() == expected.item()
+
+
+def test_lambda_recon_zero_leaves_a_well_posed_loss():
+    """Dropping the forward KL entirely has to still train a valid decoder.
+
+    `recon` is the categorical likelihood, but validity comes from the masked
+    row softmax rather than from the loss, so removing it should cost the ELBO
+    reading and nothing structural. The rows still have to sum to 1 and the
+    diagonal still has to be 0 after training against log_recon alone.
+    """
+    T, log_y = random_T(6, 6, seed=5), torch.randn(6, dtype=torch.float64)
+    off = off_diagonal(6, T.device)
+    model = make(n_nodes=6, d_model=16, n_heads=2, d_ff=16, encoder_layers=1)
+    model.train()
+    cfg = dataclasses.replace(model.config, lambda_recon=0.0, lambda_log=3.0)
+
+    opt = torch.optim.Adam(model.parameters(), lr=3e-3)
+    for step in range(30):
+        opt.zero_grad()
+        loss = tmvae_loss(model(T, sample=False), T, log_y, cfg)
+        assert torch.isfinite(loss.total), f"step {step}: {loss}"
+        # The term is still measured, just not charged for.
+        assert torch.isfinite(loss.recon)
+        loss.total.backward()
+        opt.step()
+
+    model.eval()
+    T_hat = model(T, sample=False).T_hat
+    assert torch.allclose(T_hat.sum(-1), torch.ones_like(T_hat.sum(-1)), atol=TOL)
+    assert torch.allclose(torch.diagonal(T_hat, dim1=-2, dim2=-1),
+                          torch.zeros_like(T_hat[..., 0]), atol=TOL)
+    # And `recon` really is absent from the total rather than merely small.
+    final = tmvae_loss(model(T, sample=False), T, log_y, cfg)
+    without_recon = (
+        cfg.beta * final.kl + cfg.gamma * final.prop + cfg.lambda_log * final.log_recon
+    )
+    assert final.total.item() == without_recon.item()
+    assert final.recon.item() != 0.0

@@ -42,7 +42,7 @@ from tm_ml.models import TMVAE, TMVAEConfig, tmvae_loss
 # per-epoch record cannot disagree.
 LOSS_TERMS = ("total", "recon", "kl", "kl_node", "kl_global", "prop", "log_recon")
 HISTORY_FIELDS = (
-    ("epoch", "lr", "beta", "gamma", "lambda_log")
+    ("epoch", "lr", "beta", "gamma", "lambda_log", "lambda_recon")
     + tuple(f"train_{t}" for t in LOSS_TERMS)
     + tuple(f"val_{t}" for t in LOSS_TERMS)
     + ("train_score", "val_score", "seconds")
@@ -128,7 +128,7 @@ def selection_score(losses, cfg):
     this is the one that selects and stops.
     """
     return (
-        losses["recon"]
+        cfg["lambda_recon"] * losses["recon"]
         + cfg["beta"] * losses["kl"]
         + cfg["gamma"] * losses["prop"]
         + cfg["lambda_log"] * losses["log_recon"]
@@ -217,6 +217,7 @@ def train(cfg):
             beta=loss_weight_at(cfg, "beta", epoch),
             gamma=loss_weight_at(cfg, "gamma", epoch),
             lambda_log=loss_weight_at(cfg, "lambda_log", epoch),
+            lambda_recon=loss_weight_at(cfg, "lambda_recon", epoch),
         )
 
         train_losses = run_epoch(
@@ -234,6 +235,7 @@ def train(cfg):
             "beta": epoch_cfg.beta,
             "gamma": epoch_cfg.gamma,
             "lambda_log": epoch_cfg.lambda_log,
+            "lambda_recon": epoch_cfg.lambda_recon,
             "seconds": round(time.time() - epoch_start, 3),
             **{f"train_{k}": v for k, v in train_losses.items()},
             **{f"val_{k}": v for k, v in val_losses.items()},
