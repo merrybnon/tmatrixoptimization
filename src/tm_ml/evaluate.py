@@ -111,24 +111,26 @@ def collect(model, dataset, model_cfg, device, batch_size):
     return collected
 
 
-def calibration_fit(log_y, log_y_hat):
-    """Least squares log_y_hat ~ slope * log_y + intercept, and the slope's error.
+def fit_line(x, y):
+    """Least squares y ~ slope * x + intercept, with the slope's standard error.
 
-    A slope under 1 is a compressed range: the head has fallen back on the mean
-    wherever the latent told it nothing, so it over-predicts the small exponents
-    and under-predicts the large ones. The standard error says whether the gap
-    from 1 is worth reading. Everything is in log space, which is where the loss
-    lives and what the residual panel of predictions.png plots.
+    Which way round matters, and the two directions answer different questions.
+    Regressing the prediction on the truth gives *resolution*: how much of the
+    true spread the model resolves, which is below 1 for any model that is not
+    perfect and is not a defect. Regressing the truth on the prediction gives
+    *calibration*: whether the truth averages to what was predicted, which is 1
+    for an honest conditional mean however weak the model is. Only the second
+    one being off is a bug.
     """
-    n = len(log_y)
-    centered = log_y - log_y.mean()
+    n = len(x)
+    centered = x - x.mean()
     sxx = float((centered ** 2).sum())
     if n < 3 or sxx == 0.0:
         return None, None, None
 
-    slope = float((centered * (log_y_hat - log_y_hat.mean())).sum() / sxx)
-    intercept = float(log_y_hat.mean() - slope * log_y.mean())
-    residual = log_y_hat - (slope * log_y + intercept)
+    slope = float((centered * (y - y.mean())).sum() / sxx)
+    intercept = float(y.mean() - slope * x.mean())
+    residual = y - (slope * x + intercept)
     stderr = float(np.sqrt(float((residual ** 2).sum()) / (n - 2) / sxx))
     return slope, intercept, stderr
 
@@ -155,7 +157,8 @@ def property_metrics(data, scaler):
     log_y, log_y_hat = scaler.inverse(y), scaler.inverse(y_hat)
     exponent, exponent_hat = np.exp(log_y), np.exp(log_y_hat)
     relative = np.abs(exponent_hat - exponent) / exponent
-    slope, intercept, slope_stderr = calibration_fit(log_y, log_y_hat)
+    resolution = fit_line(log_y, log_y_hat)
+    calibration = fit_line(log_y_hat, log_y)
 
     return {
         "test_prop": float((residual ** 2).mean()),
@@ -170,11 +173,18 @@ def property_metrics(data, scaler):
         "test_median_relative_error": float(np.median(relative)),
         "test_rmse_exponent": float(np.sqrt(((exponent_hat - exponent) ** 2).mean())),
         "test_exponent_range": [float(exponent.min()), float(exponent.max())],
-        # Slope 1 is a calibrated range; below it the predictions are shrunk
-        # toward the training mean, which no single-number error metric shows.
-        "test_calibration_slope": slope,
-        "test_calibration_intercept": intercept,
-        "test_calibration_slope_stderr": slope_stderr,
+        # Prediction on truth: the fraction of the true spread the model
+        # resolves. An MSE-optimal conditional mean lands on R^2 here, so this
+        # sitting below 1 is the model being imperfect, not being wrong.
+        "test_resolution_slope": resolution[0],
+        "test_resolution_intercept": resolution[1],
+        "test_resolution_slope_stderr": resolution[2],
+        # Truth on prediction, the other direction: does the truth average to
+        # what was predicted. This is the one that should be 1, and the one
+        # worth acting on when it is not.
+        "test_calibration_slope": calibration[0],
+        "test_calibration_intercept": calibration[1],
+        "test_calibration_slope_stderr": calibration[2],
         "baseline_note": "trivial only; the strong baseline is combinatorial edge editing",
     }
 
@@ -416,8 +426,10 @@ def report(m):
         f"RMSE {m['test_rmse_exponent']:.1f} in exponent units"
     )
     print(
-        f"  range      calibration slope {m['test_calibration_slope']:.3f} "
-        f"+/- {m['test_calibration_slope_stderr']:.3f}  (1 is calibrated)"
+        f"  range      resolution {m['test_resolution_slope']:.3f} "
+        f"+/- {m['test_resolution_slope_stderr']:.3f} (expect R2)  "
+        f"calibration {m['test_calibration_slope']:.3f} "
+        f"+/- {m['test_calibration_slope_stderr']:.3f} (expect 1)"
     )
     print(
         f"  recon      KL {m['test_recon']:.3f}  rmse {m['test_recon_rmse']:.4f}  "

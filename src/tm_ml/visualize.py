@@ -157,7 +157,7 @@ def predictions(data, scaler, metrics, out):
     log_y = scaler.inverse(data["y"].numpy())
     log_y_hat = scaler.inverse(data["y_hat"].numpy())
     true, predicted = np.exp(log_y), np.exp(log_y_hat)
-    slope, intercept, stderr = evaluate_module.calibration_fit(log_y, log_y_hat)
+    slope, intercept, _ = evaluate_module.fit_line(log_y, log_y_hat)
 
     fig, axes = plt.subplots(1, 2, figsize=(10.5, 4.6))
 
@@ -166,11 +166,12 @@ def predictions(data, scaler, metrics, out):
     ax.plot(limits, limits, color=INK_SOFT, linewidth=1.0, linestyle="--", label="exact")
     ax.scatter(true, predicted, s=22, color=TRAIN, edgecolor=SURFACE,
                linewidth=0.5, label="test example")
-    # The fit against the identity line is the whole story of the range: where
-    # the two cross is the only exponent the model gets right on average.
+    # Prediction regressed on truth, against the identity line. The gap between
+    # them is resolution, not error: where they cross is the only exponent the
+    # model gets right on average.
     grid = np.linspace(np.log(limits[0]), np.log(limits[1]), 200)
     ax.plot(np.exp(grid), np.exp(slope * grid + intercept), color=INK,
-            linewidth=1.4, label=f"fit, slope {slope:.2f}")
+            linewidth=1.4, label=f"fit, resolution {slope:.2f}")
     ax.set_xscale("log")
     ax.set_yscale("log")
     ax.set_xlim(limits)
@@ -192,8 +193,11 @@ def predictions(data, scaler, metrics, out):
     ax.set_xscale("log")
     ax.set_xlabel("true decay exponent")
     ax.set_ylabel("log ŷ − log y")
+    # Resolution below 1 tilts this cloud and is the model being imperfect;
+    # calibration away from 1 is the one that means the numbers are wrong.
     ax.set_title(
-        f"Residual in log space — slope {slope:.2f} ± {stderr:.2f} (1 is calibrated)"
+        f"Residual in log space — resolution {metrics['test_resolution_slope']:.2f} "
+        f"(expect R²), calibration {metrics['test_calibration_slope']:.2f} (expect 1)"
     )
 
     fig.tight_layout(rect=(0, 0.03, 1, 1))
