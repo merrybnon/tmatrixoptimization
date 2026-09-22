@@ -292,35 +292,56 @@ def reconstruction(data, metrics, out):
 
 
 def latent(metrics, out):
-    """Whether the bottleneck is the width it claims to be."""
-    eigenvalues = np.array(metrics["latent_pca_eigenvalues"])
+    """Whether the bottleneck is the width it claims to be.
+
+    One row per latent group: the node latent always, and the graph-level one
+    below it when the run has one. Kept apart because the global slot is the
+    one that collapses, and a pooled figure would hide it.
+    """
+    groups = [("latent", "Node latent", "per node")]
+    if metrics.get("d_global"):
+        groups.append(("global", "Global latent", "per graph"))
+
+    fig, axes = plt.subplots(len(groups), 3, figsize=(13, 4.2 * len(groups)), squeeze=False)
+    for row, (prefix, name, unit) in zip(axes, groups):
+        latent_row(row, metrics, prefix, name, unit)
+
+    fig.suptitle("Latent structure", fontsize=12, color=INK, x=0.005, ha="left")
+    fig.tight_layout(rect=(0, 0.03, 1, 0.95))
+    footer(fig, metrics)
+    fig.savefig(out)
+    plt.close(fig)
+
+
+def latent_row(axes, metrics, prefix, name, unit):
+    """Spectrum, per-dimension rate and effective width for one latent group."""
+    eigenvalues = np.array(metrics[f"{prefix}_pca_eigenvalues"])
     d = len(eigenvalues)
     index = np.arange(1, d + 1)
-
-    fig, axes = plt.subplots(1, 3, figsize=(13, 4.2))
+    noise = metrics[f"{prefix}_noise_floor_var"]
 
     ax = axes[0]
     ax.semilogy(index, np.clip(eigenvalues, 1e-12, None), color=TRAIN, marker="o",
                 markersize=6, label="Cov(μ) eigenvalue")
-    ax.axhline(metrics["latent_noise_floor_var"], color=VAL, linestyle="--",
-               linewidth=1.2, label=f"posterior noise E[σ²] = {metrics['latent_noise_floor_var']:.2f}")
+    ax.axhline(noise, color=VAL, linestyle="--", linewidth=1.2,
+               label=f"posterior noise E[σ²] = {noise:.2f}")
     ax.set_xlabel("component")
     ax.set_ylabel("variance")
     ax.set_title(
-        f"Latent spectrum — {metrics['latent_pca_components_above_noise']} of {d} "
+        f"{name} spectrum — {metrics[f'{prefix}_pca_components_above_noise']} of {d} "
         "components clear the noise"
     )
     ax.set_xticks(index)
     ax.legend(loc="upper right")
 
     ax = axes[1]
-    kl_per_dim = np.array(metrics["latent_kl_per_dim"])
+    kl_per_dim = np.array(metrics[f"{prefix}_kl_per_dim"])
     ax.bar(index, np.sort(kl_per_dim)[::-1], color=TRAIN, width=0.7,
-           label=f"total {kl_per_dim.sum():.2f} nats per node")
-    ax.set_xlabel("latent dimension, ordered by rate")
+           label=f"total {kl_per_dim.sum():.2f} nats {unit}")
+    ax.set_xlabel(f"{name.lower()} dimension, ordered by rate")
     ax.set_ylabel("nats")
     ax.set_title(
-        f"Per-dimension rate — {metrics['latent_dims_to_90pct_kl']} dimensions "
+        f"{name} rate — {metrics[f'{prefix}_dims_to_90pct_kl']} dimensions "
         "carry 90% of it"
     )
     ax.set_xticks(index)
@@ -329,8 +350,8 @@ def latent(metrics, out):
     ax = axes[2]
     labels = ["active\nunits", "PCA 90%", "above\nnoise", "dims to\n90% KL"]
     values = [
-        metrics["latent_active_units"], metrics["latent_pca_components_90"],
-        metrics["latent_pca_components_above_noise"], metrics["latent_dims_to_90pct_kl"],
+        metrics[f"{prefix}_active_units"], metrics[f"{prefix}_pca_components_90"],
+        metrics[f"{prefix}_pca_components_above_noise"], metrics[f"{prefix}_dims_to_90pct_kl"],
     ]
     ax.bar(labels, values, color=TRAIN, width=0.62)
     ax.axhline(d, color=INK_SOFT, linestyle="--", linewidth=1.2)
@@ -340,14 +361,8 @@ def latent(metrics, out):
         ax.annotate(str(value), xy=(x, value), xytext=(0, 4), textcoords="offset points",
                     ha="center", fontsize=8.5, color=INK)
     ax.set_ylim(0, d * 1.25)
-    ax.set_ylabel("dimensions per node")
-    ax.set_title("Effective width, four ways")
-
-    fig.suptitle("Latent structure", fontsize=12, color=INK, x=0.005, ha="left")
-    fig.tight_layout(rect=(0, 0.03, 1, 0.95))
-    footer(fig, metrics)
-    fig.savefig(out)
-    plt.close(fig)
+    ax.set_ylabel(f"dimensions {unit}")
+    ax.set_title(f"{name} effective width, four ways")
 
 
 def node_features(T):
