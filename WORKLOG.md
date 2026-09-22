@@ -326,3 +326,56 @@ The `lambda_recon = 0` collapse scoring R² 0.806 on one active unit suggested t
 | 8 | 0.762 ± 0.043 | 1.848 | 0.650 | 117.1 | 4.0 |
 
 One dimension per node costs R² 0.35 and triples the log-space error. Two recovers the property, four recovers reconstruction, and eight is four wasted dimensions — 4 and 8 agree on KL, active units and every reconstruction column, which is the 09-16 finding that β sets the effective width, now measured from the other side.
+
+## 2026-09-22 — the global latent: one axis, relocated rather than added
+
+`config/sweeps/global_dims.yaml` adds a graph-level latent beside the 20 node latents, at the settled β 0.01, λ_recon 1, λ_log 3, `d_latent` 8, with `d_global` ∈ {1, 2, 3, 4} × three seeds. The hybrid had been in `permutationsandlatent.md` since 09-16; this is the first time it was trained. Twelve runs took 31.5 min at two concurrent jobs, 288–317 s each, against the ledger's 327 s median for 600 epochs.
+
+### The property does not move
+
+Mean ± sd over the three seeds, each seed being its own split; the d_global 0 row is the β 0.01 cell of `beta_capacity`:
+
+| d_global | R² | med rel | log_recon | global KL |
+|---|---|---|---|---|
+| 0 | 0.790 ± 0.035 | 0.193 | 0.421 | — |
+| 1 | 0.782 ± 0.059 | 0.195 | 0.423 | 2.90 ± 0.22 |
+| 2 | 0.789 ± 0.061 | 0.203 | 0.405 | 2.89 ± 0.02 |
+| 3 | 0.781 ± 0.055 | 0.196 | 0.393 | 1.64 ± 1.38 |
+| 4 | 0.802 ± 0.050 | 0.202 | 0.419 | 1.79 ± 1.36 |
+
+Every cell sits within a seed sd of the baseline. The seed is the larger axis: seed 0 scores ≈ 0.72 at every width, seeds 1 and 2 0.79–0.84, which is the split and not the model.
+
+### Exactly one dimension, whatever the width
+
+All twelve runs leave exactly one global dimension active at ≈ 2.9 nats; the extra dimensions sit on the prior. Seed 1 collapsed it entirely at d_global 3 (0.05 nats) and 4 (0.2), and seed 2 half-collapsed it at 3 (2.0). Nothing at d_global 1 collapsed, but three seeds per cell cannot say whether width invites it.
+
+### The information moved; none was added
+
+A linear probe of log y from the graph-mean node latents, 5-fold CV R² over all 1000 graphs, falls from 0.86–0.90 at baseline to 0.62–0.79 once the global is active, and appending the global restores it to 0.86–0.93. The two collapsed runs read 0.89–0.90, indistinguishable from baseline. The between-graph share of node-latent variance drops accordingly, 2.0–2.7% → 1.7–2.0%. The encoder hands the graph-level signal to the global slot and the node latents stop carrying it.
+
+The model depends on it. Clamping the global to its test mean drops test R² from ≈ 0.72–0.83 to 0.20–0.44 and raises log_recon from ≈ 0.40 to 0.48–0.59; a ±2 sd shift moves predicted log y by ≈ ±1.5. The graph-mean node latents predict only 24–73% of its variance, and it is near-uncorrelated with the sorted-160 PC1 (|r| ≲ 0.2), so it is not a rotation of the dominant node-side axis.
+
+### What the axis is
+
+The same thing in every run, correlations over the 1000 graphs with each run's sign aligned to log y:
+
+| graph feature | r |
+|---|---|
+| std over nodes of min log outflow | −0.77 … −0.88 |
+| std over nodes of log stationary π | −0.76 … −0.86 |
+| mean over nodes of log stationary π | +0.72 … +0.84 |
+| log decay exponent | +0.63 … +0.85 |
+| log relaxation time from abs(λ₂) | −0.69 … −0.80 |
+| mean inflow | ≈ 0 |
+
+Node heterogeneity: high where the stationary distribution is even and the weakest links are alike across nodes, which goes with faster decay. It is a property of the whole graph that no single node carries — what a global slot is for — and it is learned reproducibly. `d_global = 1` is sufficient.
+
+One trap for reading the figures: a collapsed global still has a posterior mean that varies across graphs and tracks the node latents at r ≈ 0.85, but at 0.06 nats the decoder and predictor ignore it. Correlation in `latent_property.png` does not mean use; read the nats on the axis first.
+
+### Figures
+
+`latent.png` gains a global row beneath the node row. `latent_property.png` gains two rows for global runs: the global against the best graph-mean node axis by rate, by property and by sorted PC1, and the sorted PCA with the global appended raw and at ×√20. Raw, the global is 4–6% of the variance and loads ≈ 0–0.24 on the top two components; at ×√20 it takes PC1 at ≈ 0.99. Neither weighting is privileged, so both are drawn, and the global-against-PC1 panel says the same thing more directly.
+
+### Next steps
+- **Latent traversals and interpolation.** Decode along each active dimension, node and global, holding the rest at a graph's encoding, and show the matrix and its predicted property changing. The global is the natural first traversal, being a single graph-level scalar that needs no alignment. Interpolation between two graphs needs the Hungarian alignment of node slots from 09-14 first, since the node latent is a set; the global half interpolates directly.
+- **Optimizing the property in latent space.** Gradient ascent on the predicted property from an encoded matrix, the goal the architecture was built for; ascent equivariance is already verified in `architecture.md`. The global axis, r ≈ 0.8 with log y, is a candidate one-dimensional search direction to compare against full ascent. Predicted gains mean nothing until the decoded matrices are scored by the true generator, which lives outside the repo.

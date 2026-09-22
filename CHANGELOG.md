@@ -11,6 +11,13 @@ All notable changes to this project will be documented in this file. The format 
 - `config/sweeps/log_recon.yaml`, `log_recon_wd0.yaml`, `recon_ratio.yaml`, `recon_ratio_scale.yaml`, `beta_capacity.yaml`, `latent_width.yaml`: 64 runs behind the above. Each file carries its own result, including the negative ones — that (lambda_recon 2, lambda_log 6) does not reproduce (1, 3), so the reconstruction block's weight against beta is the axis rather than the ratio; and that the apparent weight-decay effect in the wd0 runs is a seed-2 artifact, the per-seed deltas on recon being +0.141, +0.066 and −0.104 against a pooled +0.034 ± 0.066.
 - `src/tm_ml/evaluate.py`: `lambda_log` and `lambda_recon` in `metrics.json`, which `visualize.py` reads to title the by-magnitude panel with the objective the run actually trained against.
 - `src/tm_ml/benchmarks.py`: `dropout` and `weight_decay` columns, plus the two lambdas. Both predated the ledger and had to be parsed out of run names to compare anything on them; `scan` already merged `config.json`, so only the column list was missing.
+- `src/tm_ml/visualize.py`: `latent_property.png`, a fifth figure — node latents and graph means in the highest-rate and highest-property bases, a table of what each node dimension correlates with among equivariant node features, and a PCA of the sorted-160 descriptor, which unlike the raw flattened latent does not depend on node labelling. Wired into the Snakefile and the stage test.
+- `config/sweeps/global_dims.yaml`: the first trained graph-level latent, `d_global` ∈ {1, 2, 3, 4} × three seeds at β 0.01. Exactly one global dimension goes active at ≈ 2.9 nats whatever the width, R² does not move off baseline, and the graph-level signal relocates from the node latents into it rather than being added.
+- `src/tm_ml/visualize.py`: global rows in both latent figures, drawn only when `d_global > 0` so every existing run's figures are unchanged. `latent.png` repeats spectrum, per-dimension rate and effective width for the global. `latent_property.png` gains the global against the best graph-mean node axis by rate, property and sorted PC1, a graph-feature correlation column for the global, and the sorted PCA with the global appended both raw and weighted by √n_nodes, each panel carrying the global's loading, since which weight is right is not settled and the answer turns on it.
+
+### Removed
+
+- `config/sweeps/beta_capacity.yaml`, deleted in the commit that added `global_dims.yaml`. Its runs, results and ledger rows remain, and the file is recoverable from `2d82fda`.
 
 ### Fixed
 
@@ -18,6 +25,8 @@ All notable changes to this project will be documented in this file. The format 
 
 ### Changed
 
+- `src/tm_ml/visualize.py`: `latent_property.png` is coloured by the raw decay exponent, the units the property is quoted in, while the property axis ranking stays on log y, which is what the head regresses and R² is measured against.
+- `src/tm_ml/visualize.py`: the body of `latent` moved into `latent_row`, drawn once per latent group; titles and units now name the group, "per node" or "per graph".
 - `src/tm_ml/visualize.py`: the by-magnitude panel of `reconstruction.png` no longer asserts "forward KL weights each term by T_ij, so the left of this plot is nearly free" unconditionally. That is true only at `lambda_log = 0`; once the log-space term is on, the left of the plot is what is being paid for, and calling it free reads as a defect rather than the result.
 
 - `src/tm_ml/models.py`: the model, finished and committed. Equivariant transformer encoder over 20 node tokens with an additive per-head attention bias built from edge features; a decoder whose few equivariant layers mix the latents before an asymmetric pair MLP, then `-inf` on the diagonal *before* the row softmax so every output is a valid transition matrix by construction; and an invariant property predictor. Per-row KL reconstruction, per-group prior KL, and a no-grad log-space reconstruction diagnostic, with the four zero-diagonal nan traps handled where `architecture.md` says they detonate.
