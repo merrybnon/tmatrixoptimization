@@ -281,3 +281,48 @@ All 24 regularization runs re-evaluated and redrawn.
 | calibration | 0.874 – 1.040 | 0.940 |
 
 Resolution tracks R² cell by cell, as it must, and neither β nor dropout nor weight decay moves it beyond seed noise. Calibration sits below 1 in 22 of 24 runs, the mild-overfit signature of predictions a few percent too extreme. The three seeds are the three splits and give 0.910, 0.964 and 0.946, so the split-to-split spread is as large as the shortfall — a consistent lean on three quasi-independent measurements, not yet a demonstrated bias.
+
+## 2026-09-21 — the log-space term, and what actually sets reconstruction quality
+
+Started from the over-prediction visible in `reconstruction.png`. It is real, it is signed, and `architecture.md` predicted it before any model trained: forward KL weights each term by the true T_ij, so an entry of 1e-6 contributes nothing and its fitted value is set by the decoder's inductive bias rather than by the data. Measured on the b0.05 dropout seed-1 run, the weakest decile is over-predicted by a mean of +1.26 in log10 with 97% of entries on the high side, the fit is `log₁₀ T̂ = 0.689·log₁₀ T − 0.514`, and the row softmax turns that compression into a 3.0× inflation of the mass held by each row's weakest ten entries.
+
+### The term
+
+`log_recon` existed as a no-grad diagnostic. `lambda_log` makes it a loss term — unweighted mean absolute log error over the 380 off-diagonal entries, L1 rather than squared because log errors span ten decades. Per entry the KL's gradient weight is T_ij and this term's is `lambda_log / 380`, which cross near the median entry at `lambda_log = 1`.
+
+Across λ ∈ {0, 0.3, 1, 3, 10}, three seeds: mean bias +0.312 → −0.004, weakest decile ×14 → ×1.1, fit slope 0.713 → 0.984, row-tail inflation 2.79× → 1.60×. `recon` did not degrade — it improved, 2.206 → 1.740 — and KL rose 99.8 → 139.3.
+
+### It was buying latent capacity, not trading against the KL
+
+`lambda_recon` was added to make the mix an axis. The `lambda_recon = 0` cell collapses: KL 17.6, one active unit of eight, and `log_recon` three times *worse* at 2.007 despite being the only reconstruction term left. The arithmetic is the 09-16 posterior-collapse calculation — an informative latent saves `3·(2.344 − 0.705) = 4.9` nats of log_recon against a `0.05·(115.9 − 17.8) = 4.9` nat KL bill, exactly break-even, so nothing punishes collapse. With `recon` on, the same latent also saves ~63 nats, 13× the bill. `recon` is what makes the code worth its price; `log_recon` is a *mean* over 380 entries and cannot outbid β on its own.
+
+The scale control settles the rest. (λ_recon 2, λ_log 6) has the same ratio as (1, 3) and does not reproduce it — KL 151.4 against 117.1 — landing instead with (2, 3). So the ratio is not the axis; the reconstruction block's weight against β is, and part of what the λ_log ladder measured was β being diluted.
+
+What survives is a decomposition, and the collapsed cell is what proves it: at KL 17.6, the lowest capacity in the sweep, bias is +0.045, near-centred. **λ_log sets where the log-space error sits; latent capacity sets how tight it is.**
+
+### β is the direct knob
+
+At λ_recon 1, λ_log 3, three seeds:
+
+| β | KL | recon | log_recon | bias | scatter | slope | R² | med rel |
+|---|---|---|---|---|---|---|---|---|
+| 0.01 | 211.1 | 0.785 | 0.421 | −0.008 | 0.273 | 0.992 | 0.790 ± 0.020 | 0.193 |
+| 0.02 | 164.8 | 1.098 | 0.477 | −0.012 | 0.317 | 0.992 | 0.771 ± 0.023 | 0.200 |
+| 0.05 | 117.1 | 1.848 | 0.650 | +0.005 | 0.404 | 0.957 | 0.762 ± 0.043 | 0.218 |
+| 0.10 | 86.3 | 2.736 | 0.908 | +0.094 | 0.526 | 0.895 | 0.766 ± 0.025 | 0.229 |
+| 0.15 | 73.2 | 3.422 | 1.031 | +0.117 | 0.584 | 0.878 | 0.759 ± 0.027 | 0.240 |
+
+β spans a wider capacity range than either λ and every reconstruction column tracks it monotonically. β = 0.01 is the best reconstruction on record here. R² stays flat at 0.759–0.790, but median relative error improves monotonically 0.240 → 0.193, so the property does respond weakly on the robust metric while R² does not.
+
+### A scalar latent does not suffice
+
+The `lambda_recon = 0` collapse scoring R² 0.806 on one active unit suggested the target might be near-scalar. It is not, and that inference was confounded: with no reconstruction pressure the encoder is free to spend its one unit entirely on the property. Forcing the width instead, at three seeds:
+
+| d_latent | R² | recon | log_recon | KL | active |
+|---|---|---|---|---|---|
+| 1 | 0.442 ± 0.129 | 8.357 | 1.669 | 74.7 | 1.0 |
+| 2 | 0.781 ± 0.022 | 4.286 | 1.040 | 95.8 | 2.0 |
+| 4 | 0.792 ± 0.030 | 1.751 | 0.623 | 118.3 | 4.0 |
+| 8 | 0.762 ± 0.043 | 1.848 | 0.650 | 117.1 | 4.0 |
+
+One dimension per node costs R² 0.35 and triples the log-space error. Two recovers the property, four recovers reconstruction, and eight is four wasted dimensions — 4 and 8 agree on KL, active units and every reconstruction column, which is the 09-16 finding that β sets the effective width, now measured from the other side.
