@@ -62,7 +62,8 @@ rule all:
         expand("data/processed/{drop}/meta.json", drop=DROPS),
         expand("results/{run}/metrics.json", run=list(RUNS)),
         expand("results/{run}/{figure}.png", run=list(RUNS),
-               figure=["training_curve", "predictions", "reconstruction", "latent"]),
+               figure=["training_curve", "predictions", "reconstruction", "latent",
+                       "latent_property"]),
         [BENCHMARKS_CSV] if RUNS else [],
 
 
@@ -161,7 +162,8 @@ rule visualize:
         src=[f"{PKG}/visualize.py", f"{PKG}/evaluate.py"] + SHARED_SRC,
     output:
         expand("results/{{run}}/{figure}.png",
-               figure=["training_curve", "predictions", "reconstruction", "latent"]),
+               figure=["training_curve", "predictions", "reconstruction", "latent",
+                       "latent_property"]),
     log:
         "results/{run}/logs/visualize.log",
     threads: 2

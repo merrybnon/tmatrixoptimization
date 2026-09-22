@@ -4,7 +4,8 @@ import pytest
 
 from tm_ml import evaluate, paths, train, visualize
 
-FIGURES = ("training_curve.png", "predictions.png", "reconstruction.png", "latent.png")
+FIGURES = ("training_curve.png", "predictions.png", "reconstruction.png",
+           "latent.png", "latent_property.png")
 
 
 def test_visualize_writes_every_figure(wired, tiny_config):

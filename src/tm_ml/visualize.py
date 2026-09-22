@@ -2,7 +2,7 @@
 
     pixi run -e ml visualize --run TMVAE_b0p15-bw20-e300-lff0p05-schcosine_Tom1000
 
-Four PNGs into the run directory, each stamped with a provenance footer — run,
+Five PNGs into the run directory, each stamped with a provenance footer — run,
 checkpoint epoch and score, drop, split seed, git hash, timestamp — so a figure
 is self-describing wherever it ends up:
 
@@ -11,6 +11,8 @@ is self-describing wherever it ends up:
 - ``reconstruction.png``  example matrices, and error against the size of the
                           true entry, which is where forward KL is blind
 - ``latent.png``          how many latent dimensions are actually carrying code
+- ``latent_property.png`` where graphs sit in the latent, coloured by the
+                          property, at node and graph level and in two bases
 
 Reads `history.csv` and `metrics.json`, and re-runs the model for the examples,
 so it needs `evaluate.py` to have gone first.
@@ -49,6 +51,9 @@ DIVERGING = LinearSegmentedColormap.from_list(
 )
 
 N_EXAMPLES = 3
+# Below this rate a dimension is prior noise, not code.
+ACTIVE_DIM_MIN_KL = 0.01
+LOG_FLOOR = 1e-12
 
 
 def style():
@@ -345,6 +350,188 @@ def latent(metrics, out):
     plt.close(fig)
 
 
+def node_features(T):
+    """Interpretable per-node summaries, each equivariant under relabelling.
+
+    Every one reduces over the *other* index, so it is a property of the node
+    and not of the labelling — the condition `permutationsandlatent.md` sets out
+    for a legitimate node feature. These are what make the latent axes readable:
+    a dimension is named by what it correlates with.
+    """
+    n = T.shape[-1]
+    off = off_diagonal(n, torch.device("cpu")).numpy()
+    log_T = np.log(np.clip(T, LOG_FLOOR, None))
+
+    column = T / np.clip(T.sum(1, keepdims=True), LOG_FLOOR, None)
+    # The diagonal is structurally zero and would win every minimum.
+    stationary = np.empty(T.shape[:2])
+    for graph, matrix in enumerate(T):
+        values, vectors = np.linalg.eig(matrix.T)
+        leading = np.real(vectors[:, np.argmin(np.abs(values - 1.0))])
+        stationary[graph] = leading / leading.sum()
+
+    return {
+        "inflow": T.sum(1),
+        "out entropy": -(T * log_T).sum(2),
+        "in entropy": -(column * np.log(np.clip(column, LOG_FLOOR, None))).sum(1),
+        "max outflow": T.max(2),
+        "min log outflow": np.where(off, log_T, np.inf).min(2),
+        "log stationary π": np.log(np.clip(stationary, LOG_FLOOR, None)),
+    }
+
+
+def latent_property(data, scaler, metrics, out):
+    """Where graphs land in the latent, and whether that place tracks the property.
+
+    Two rows, because the latent is per-node while the property is per-graph.
+    The top row is every node latent, 20 per graph sharing one colour; the
+    bottom is each graph's mean over its 20 nodes, the invariant summary the
+    property actually rides on. Two bases, because rate and property-relevance
+    are different things — the highest-rate dimension need not be the one the
+    target moves along, and on the b0.01 run it is not.
+    """
+    mu = data["mu"].numpy()
+    log_y = scaler.inverse(data["y"].numpy())
+    n_graphs, n_nodes, d_latent = mu.shape
+    flat = mu.reshape(-1, d_latent)
+    graph_mean = mu.mean(1)
+    rng = np.random.default_rng(0)
+
+    kl_per_dim = np.asarray(
+        metrics.get("latent_kl_per_dim") or np.zeros(d_latent), dtype=float
+    )
+    # A dead dimension sits at mu = 0, sigma = 1. It carries nothing, and left in
+    # it would win the correlation ranking on sampling noise alone.
+    live = np.flatnonzero((kl_per_dim > ACTIVE_DIM_MIN_KL) & (flat.var(0) > 0))
+    if live.size == 0:
+        live = np.arange(d_latent)
+
+    by_rate = live[np.argsort(kl_per_dim[live])[::-1]]
+    enough = n_graphs > 2 and log_y.std() > 0
+    if enough:
+        correlation = np.array([
+            np.corrcoef(graph_mean[:, d], log_y)[0, 1] for d in range(d_latent)
+        ])
+        by_property = live[np.argsort(np.abs(correlation[live]))[::-1]]
+    else:
+        correlation = np.full(d_latent, np.nan)
+        by_property = by_rate
+
+    # Law of total variance over the node axis. The share is small and the
+    # information is not: this is the 3% the property rides on.
+    between = graph_mean.var(0)[live].sum()
+    within = mu.var(1).mean(0)[live].sum()
+    between_fraction = between / (between + within)
+
+    fig = plt.figure(figsize=(16.5, 8.8))
+    grid = fig.add_gridspec(
+        2, 4, width_ratios=[1, 1, 1, 0.038],
+        left=0.05, right=0.935, top=0.895, bottom=0.10, wspace=0.30, hspace=0.42,
+    )
+    axes = [[fig.add_subplot(grid[row, column]) for column in range(3)] for row in range(2)]
+    bar = fig.add_subplot(grid[:, 3])
+
+    # The per-dimension number belongs on the axis it describes, not in the
+    # title: four panels of it across one row runs the titles into each other.
+    def label(dim, basis):
+        if basis == "rate":
+            return f"latent dim {dim} — {kl_per_dim[dim]:.2f} nats"
+        return f"latent dim {dim} — r {correlation[dim]:+.2f}"
+
+    def scatter(ax, points, dims, basis, colour, small):
+        """One panel of points in two latent coordinates, coloured by the property."""
+        x = points[:, dims[0]]
+        if len(dims) >= 2:
+            y, ylabel = points[:, dims[1]], label(dims[1], basis)
+        else:
+            # d_latent = 1, or a collapsed run with a single surviving unit.
+            y, ylabel = rng.uniform(-1, 1, len(x)), "jitter — one live dimension"
+        style = dict(s=7, alpha=0.55, linewidth=0) if small else dict(
+            s=34, alpha=0.95, edgecolor=SURFACE, linewidth=0.5)
+        ax.set_xlabel(label(dims[0], basis))
+        ax.set_ylabel(ylabel)
+        return ax.scatter(x, y, c=colour, cmap=SEQUENTIAL, **style)
+
+    node_colour = np.repeat(log_y, n_nodes)
+    property_title = (
+        "Node latents, property axes" if enough
+        else "Node latents — too few graphs to rank by property"
+    )
+
+    handle = scatter(axes[0][0], flat, by_rate[:2], "rate", node_colour, True)
+    axes[0][0].set_title("Node latents, highest-rate axes")
+    scatter(axes[0][1], flat, by_property[:2], "property", node_colour, True)
+    axes[0][1].set_title(property_title)
+    for ax in axes[0][:2]:
+        ax.annotate(
+            f"{between_fraction:.1%} of this spread is between graphs;\n"
+            f"the rest is nodes differing within one",
+            xy=(0.03, 0.97), xycoords="axes fraction", va="top",
+            fontsize=7.5, color=INK_SOFT,
+        )
+
+    scatter(axes[1][0], graph_mean, by_rate[:2], "rate", log_y, False)
+    axes[1][0].set_title("Graph means, highest-rate axes")
+    scatter(axes[1][1], graph_mean, by_property[:2], "property", log_y, False)
+    axes[1][1].set_title(
+        "Graph means, property axes" if enough
+        else "Graph means — too few graphs to rank by property"
+    )
+
+    # Sorting each dimension's 20 node values independently is invariant to
+    # relabelling, which the raw flattened 160-vector is not: node slot i holds
+    # a different node in every graph, so a projection of it would describe the
+    # labelling. This keeps each dimension's marginal over nodes; what it gives
+    # up is the joint, which node held which combination across dimensions.
+    ax = axes[1][2]
+    n_sorted = n_nodes * d_latent
+    if n_graphs > 2:
+        descriptor = np.sort(mu, axis=1).reshape(n_graphs, -1)
+        centred = descriptor - descriptor.mean(0)
+        _, singular, right = np.linalg.svd(centred, full_matrices=False)
+        coordinates = centred @ right[:2].T
+        captured = (singular[:2] ** 2).sum() / max((singular ** 2).sum(), LOG_FLOOR)
+        ax.scatter(coordinates[:, 0], coordinates[:, 1], c=log_y, cmap=SEQUENTIAL,
+                   s=34, alpha=0.95, edgecolor=SURFACE, linewidth=0.5)
+        ax.set_xlabel(f"sorted-{n_sorted} PC1")
+        ax.set_ylabel(f"sorted-{n_sorted} PC2")
+        ax.set_title(f"All {n_sorted}, sorted invariant — top 2 hold {captured:.1%}")
+    else:
+        ax.set_axis_off()
+        ax.set_title(f"All {n_sorted}, sorted invariant — needs 3+ graphs")
+
+    # Whether a dimension means the same thing at every node. It does, and not
+    # by luck: the encoder applies one shared pointwise readout to every node,
+    # with no node-indexed parameters anywhere, so dim d cannot mean one thing
+    # at slot 3 and another at slot 17.
+    ax = axes[0][2]
+    features = node_features(data["T"].numpy())
+    table = np.array([
+        [np.corrcoef(flat[:, d], values.ravel())[0, 1] for d in live]
+        for values in features.values()
+    ])
+    image = ax.imshow(table, cmap=DIVERGING, vmin=-1.0, vmax=1.0,
+                      aspect="auto", interpolation="nearest")
+    ax.set_xticks(range(len(live)), [f"dim {d}" for d in live], fontsize=7.5)
+    ax.set_yticks(range(len(features)), list(features), fontsize=7.5)
+    ax.grid(False)
+    for row in range(table.shape[0]):
+        for column in range(table.shape[1]):
+            ax.annotate(f"{table[row, column]:+.2f}", xy=(column, row), ha="center",
+                        va="center", fontsize=7, color=INK)
+    ax.set_title("What each dimension means — same readout at every node")
+    fig.colorbar(image, ax=ax, fraction=0.046, pad=0.03).ax.tick_params(labelsize=7)
+
+    fig.colorbar(handle, cax=bar).set_label(
+        "log decay exponent", fontsize=8, color=INK_SOFT)
+    bar.tick_params(labelsize=7)
+    fig.suptitle("Latent space against the property", fontsize=12, color=INK,
+                 x=0.005, ha="left")
+    footer(fig, metrics)
+    fig.savefig(out)
+    plt.close(fig)
+
+
 def visualize(run, num_threads=1):
     torch.set_num_threads(num_threads)
     style()
@@ -365,6 +552,7 @@ def visualize(run, num_threads=1):
         ("predictions.png", lambda p: predictions(data, scaler, metrics, p)),
         ("reconstruction.png", lambda p: reconstruction(data, metrics, p)),
         ("latent.png", lambda p: latent(metrics, p)),
+        ("latent_property.png", lambda p: latent_property(data, scaler, metrics, p)),
     ):
         path = run_dir / name
         draw(path)
