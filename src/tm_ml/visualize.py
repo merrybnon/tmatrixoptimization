@@ -392,6 +392,10 @@ def latent_property(data, scaler, metrics, out):
     """
     mu = data["mu"].numpy()
     log_y = scaler.inverse(data["y"].numpy())
+    # Colour in the units the property is quoted in; the axis ranking below
+    # stays on log y, which is what the head regresses and what R² is measured
+    # against, so the two are not the same scale by design.
+    decay = np.exp(log_y)
     n_graphs, n_nodes, d_latent = mu.shape
     flat = mu.reshape(-1, d_latent)
     graph_mean = mu.mean(1)
@@ -452,7 +456,7 @@ def latent_property(data, scaler, metrics, out):
         ax.set_ylabel(ylabel)
         return ax.scatter(x, y, c=colour, cmap=SEQUENTIAL, **style)
 
-    node_colour = np.repeat(log_y, n_nodes)
+    node_colour = np.repeat(decay, n_nodes)
     property_title = (
         "Node latents, property axes" if enough
         else "Node latents — too few graphs to rank by property"
@@ -470,9 +474,9 @@ def latent_property(data, scaler, metrics, out):
             fontsize=7.5, color=INK_SOFT,
         )
 
-    scatter(axes[1][0], graph_mean, by_rate[:2], "rate", log_y, False)
+    scatter(axes[1][0], graph_mean, by_rate[:2], "rate", decay, False)
     axes[1][0].set_title("Graph means, highest-rate axes")
-    scatter(axes[1][1], graph_mean, by_property[:2], "property", log_y, False)
+    scatter(axes[1][1], graph_mean, by_property[:2], "property", decay, False)
     axes[1][1].set_title(
         "Graph means, property axes" if enough
         else "Graph means — too few graphs to rank by property"
@@ -491,7 +495,7 @@ def latent_property(data, scaler, metrics, out):
         _, singular, right = np.linalg.svd(centred, full_matrices=False)
         coordinates = centred @ right[:2].T
         captured = (singular[:2] ** 2).sum() / max((singular ** 2).sum(), LOG_FLOOR)
-        ax.scatter(coordinates[:, 0], coordinates[:, 1], c=log_y, cmap=SEQUENTIAL,
+        ax.scatter(coordinates[:, 0], coordinates[:, 1], c=decay, cmap=SEQUENTIAL,
                    s=34, alpha=0.95, edgecolor=SURFACE, linewidth=0.5)
         ax.set_xlabel(f"sorted-{n_sorted} PC1")
         ax.set_ylabel(f"sorted-{n_sorted} PC2")
@@ -523,7 +527,7 @@ def latent_property(data, scaler, metrics, out):
     fig.colorbar(image, ax=ax, fraction=0.046, pad=0.03).ax.tick_params(labelsize=7)
 
     fig.colorbar(handle, cax=bar).set_label(
-        "log decay exponent", fontsize=8, color=INK_SOFT)
+        "decay exponent", fontsize=8, color=INK_SOFT)
     bar.tick_params(labelsize=7)
     fig.suptitle("Latent space against the property", fontsize=12, color=INK,
                  x=0.005, ha="left")
