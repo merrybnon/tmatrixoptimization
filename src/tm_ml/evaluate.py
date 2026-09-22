@@ -336,7 +336,13 @@ def structure(mu, logvar, prefix):
     # sample is no wider than the latent and the determinant says nothing.
     if n > d:
         keep = centred.std(0, unbiased=True) > 0
-        sign, logabsdet = torch.linalg.slogdet(torch.corrcoef(centred[:, keep].T))
+        # `corrcoef` of a single column returns a 0-dim scalar rather than the
+        # 1x1 matrix slogdet needs. The value is not in doubt — one dimension
+        # has nothing to correlate with, so the determinant is 1 and the total
+        # correlation is exactly 0 — it is only the shape, so restore it rather
+        # than special-casing d == 1 with a constant.
+        correlation = torch.atleast_2d(torch.corrcoef(centred[:, keep].T))
+        sign, logabsdet = torch.linalg.slogdet(correlation)
         out[f"{prefix}_total_correlation_gauss"] = (
             float(-0.5 * logabsdet) if sign > 0 else None
         )

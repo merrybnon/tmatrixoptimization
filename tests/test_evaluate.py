@@ -64,6 +64,19 @@ def test_total_correlation_is_none_when_the_sample_is_too_narrow():
     assert out["latent_total_correlation_gauss"] is None
 
 
+def test_total_correlation_is_zero_for_a_scalar_latent():
+    """d_latent = 1 has to evaluate, not raise.
+
+    `corrcoef` of a single column returns a 0-dim scalar where slogdet wants a
+    1x1 matrix, which took down every evaluate job of the latent-width sweep at
+    d_latent = 1 after the training had already succeeded. Zero is the right
+    answer rather than None: one dimension has nothing to be correlated with.
+    """
+    out = structure(torch.randn(64, 1), torch.zeros(64, 1), prefix="latent")
+    assert out["latent_total_correlation_gauss"] == pytest.approx(0.0, abs=1e-9)
+    assert out["latent_active_units"] is not None
+
+
 def test_magnitude_table_buckets_every_entry():
     true = torch.rand(5000)
     error = torch.rand(5000)
