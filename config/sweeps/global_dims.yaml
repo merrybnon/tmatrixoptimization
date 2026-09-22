@@ -1,0 +1,21 @@
+#   pixi run -e ml pipeline --configfile config/sweeps/beta_capacity.yaml -c8 --resources gpu=2
+
+model:
+  d_latent: 8
+  beta: 0.01
+  beta_warmup_epochs: 20
+  dropout: 0.1
+  lambda_log: 3.0
+  lambda_recon: 1.0
+  d_global: [1, 2, 3, 4]
+
+training:
+  parent_path: global_latent
+  seed: [0, 1, 2]
+  epochs: 600
+  lr_schedule: cosine
+  lr_final_frac: 0.05
+  log_every: 50
+
+runtime:
+  gpu: auto
