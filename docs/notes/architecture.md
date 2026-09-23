@@ -54,7 +54,8 @@ T (20×20, zero diagonal)
    │
    ▼
 ENCODER — L layers of edge-conditioned attention over the complete digraph
-   h_i ← h_i + MLP( h_i , Σ_j α_ij · W[h_j ; e_ij] )
+   α_ij = softmax_j( q_i · k_j / √d_head + b(e_ij) )     Graphormer edge bias
+   h_i ← h_i + MLP( h_i , Σ_j α_ij · W h_j )
    │
    ▼
    μ_i , log σ_i   →   z_i ∈ ℝ^d          latent = 20 × d
@@ -120,7 +121,7 @@ The encoder update line decomposes into:
 |---|---|
 | aggregate-then-update skeleton, messages conditioned on edge features | Gilmer et al., *Neural Message Passing for Quantum Chemistry*, ICML 2017 |
 | edge features determining the transform applied to a neighbour | Simonovsky & Komodakis, *Dynamic Edge-Conditioned Filters*, CVPR 2017 |
-| attention coefficients α_ij over neighbours | Veličković et al., *Graph Attention Networks*, ICLR 2018; use the GATv2 form from Brody et al., *How Attentive are Graph Attention Networks?*, ICLR 2022 |
+| attention coefficients α_ij over neighbours, as scaled dot-product attention plus an additive per-head edge bias b(e_ij) | Ying et al., *Graphormer*, NeurIPS 2021; attention on graphs generally from Veličković et al., *Graph Attention Networks*, ICLR 2018 |
 | edge features folded into the attention itself | Dwivedi & Bresson, *A Generalization of Transformer Networks to Graphs*, 2021; Ying et al., *Graphormer*, NeurIPS 2021 |
 | residual connection | He et al., *Deep Residual Learning*, CVPR 2016; standard in deep GNNs since Li et al., *DeepGCNs*, ICCV 2019 |
 | sum aggregation being the expressive choice | Xu et al., *How Powerful are Graph Neural Networks?*, ICLR 2019 |
