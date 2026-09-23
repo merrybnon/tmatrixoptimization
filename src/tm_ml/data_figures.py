@@ -9,6 +9,9 @@ stamped with a provenance footer:
                              linear and a log axis, with summary statistics
 - ``example_matrices.png``   the four highest-target matrices, the four nearest
                              the median and the four lowest, in log10
+- ``uniformness_vs_target.png``      four measures of how uniform a matrix is,
+                                     each against the target
+- ``uniformness_vs_target_log.png``  the same with the target on a log axis
 
 Outside the Snakemake workflow: it is for looking at the data, and nothing
 downstream reads what it writes.
@@ -21,6 +24,7 @@ from pathlib import Path
 
 import matplotlib
 import numpy as np
+from scipy.stats import spearmanr
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt  # noqa: E402
@@ -141,6 +145,50 @@ def example_matrices(matrices, targets, meta, out):
     plt.close(fig)
 
 
+def uniformness(matrices):
+    """Four per-matrix measures of uniformness, over the off-diagonal entries.
+
+    Each row is a distribution over the other n − 1 states, so row entropy is
+    normalized by log(n − 1): 1 is a uniform row, 0 a deterministic one. The
+    plain std and the mean row entropy measure much the same thing; the minimum
+    row entropy and the std of log10 entries see the least uniform row and the
+    decades the small entries span, which is where the target turns out to live.
+    """
+    n = matrices.shape[-1]
+    rows = matrices[:, ~np.eye(n, dtype=bool)].reshape(len(matrices), n, n - 1)
+    entropy = -(rows * np.log(np.clip(rows, 1e-300, None))).sum(axis=2) / np.log(n - 1)
+    flat = rows.reshape(len(matrices), -1)
+    return [
+        ("std of entries", "std over off-diagonal entries", flat.std(axis=1)),
+        ("mean row entropy", "normalized row entropy, mean over rows", entropy.mean(axis=1)),
+        ("min row entropy", "normalized row entropy, min over rows", entropy.min(axis=1)),
+        ("std of log₁₀ entries", "std over off-diagonal log₁₀ entries",
+         np.log10(np.clip(flat, LOG_CLIP, None)).std(axis=1)),
+    ]
+
+
+def uniformness_vs_target(matrices, targets, meta, out, scale):
+    """Each uniformness measure against the target, one panel apiece."""
+    fig, axes = plt.subplots(2, 2, figsize=(11, 8))
+    fig.subplots_adjust(left=0.08, right=0.98, top=0.9, bottom=0.1, hspace=0.34, wspace=0.22)
+    for ax, (title, xlabel, values) in zip(axes.flat, uniformness(matrices)):
+        rho = spearmanr(values, targets).statistic
+        ax.scatter(values, targets, s=10, alpha=0.5, color=TRAIN, edgecolors="none")
+        ax.set_yscale(scale)
+        ax.set_title(f"{title}   (Spearman ρ {rho:+.2f})")
+        ax.set_xlabel(xlabel)
+        ax.set_ylabel("target (decay exponent)")
+
+    fig.suptitle(
+        f"Uniformness against target, {meta['drop']}, {scale} target axis   |   "
+        f"one point per matrix, n {len(targets)}",
+        fontsize=12, color=INK, x=0.005, ha="left",
+    )
+    footer(fig, meta)
+    fig.savefig(out)
+    plt.close(fig)
+
+
 def data_figures(drop, processed_dir=None):
     processed_dir = Path(processed_dir) if processed_dir else PROCESSED_DIR / drop
     matrices = np.load(processed_dir / "matrices.npy").astype(np.float64)
@@ -150,6 +198,9 @@ def data_figures(drop, processed_dir=None):
     style()
     target_statistics(targets, meta, processed_dir / "target_statistics.png")
     example_matrices(matrices, targets, meta, processed_dir / "example_matrices.png")
+    for scale, suffix in (("linear", ""), ("log", "_log")):
+        uniformness_vs_target(matrices, targets, meta,
+                              processed_dir / f"uniformness_vs_target{suffix}.png", scale)
     return processed_dir
 
 
@@ -160,7 +211,7 @@ def main():
     args = parser.parse_args()
 
     out = data_figures(args.drop, processed_dir=args.processed_dir)
-    print(f"wrote target_statistics.png and example_matrices.png to {out}")
+    print(f"wrote target_statistics, example_matrices and uniformness_vs_target figures to {out}")
 
 
 if __name__ == "__main__":
