@@ -451,3 +451,19 @@ What does is the least uniform part of the matrix. A matrix with even one near-d
 
 ### Next steps
 - Check whether min row entropy or the log₁₀ spread explains what the global latent encodes, by correlating each against the global μ across the test graphs.
+
+## 2026-09-23 — extreme inputs through the model
+
+Two hand-built matrices through the dg1 seed-1 run (`global_latent/TMVAE_b0p01-bw20-dg1-do0p1-e600-ll3-lff0p05-schcosine-s1_Tom1000`), drawn in its `figures/extremes_test.png`: the input, the reconstruction and log₁₀(T̂ / T) for each, with ŷ. It was a one-off script, not added to the repo. Both keep the zero diagonal. The paired matrix sends 2k ↔ 2k+1 with probability 1 − 18ε and puts ε = 1e-6 on every other entry, inside the data's entry range (down to 1.3e-14).
+
+| input | ŷ | reconstruction |
+|---|---|---|
+| uniform, T_ij = 1/19 | 2397.4 | exact, entries 1/19 to within 1e-7 |
+| paired | 563.0 | uniform, off by up to about 4.7 decades |
+
+**Uniform** comes back exactly, and ŷ sits just above the largest training target, 2041.6.
+
+**Paired cannot be reconstructed by this architecture.** Every node of the paired matrix is equivalent under relabelling, so the equivariant encoder gives all 20 the same μ, with a spread across nodes of about 1e-6. As in the optimization's node collapse, identical node latents make the pair decoder emit the uniform matrix. The encoder still tells the two inputs apart: node μ differs by 1.8 between them, and the global μ is 3.69 against 1.46. That difference is what gives them different ŷ even though both decode to uniform. ŷ = 563 cannot reflect the pairing itself, because no node latent records which node is whose partner. It is also extrapolation, since a strictly paired chain is periodic and reducible, and its true decay exponent at small ε is likely far outside the training range.
+
+### Next steps
+- Try minimizing the decay exponent in the latent optimization instead of maximizing it.
