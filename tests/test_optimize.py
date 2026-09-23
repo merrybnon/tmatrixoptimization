@@ -33,8 +33,8 @@ def encoded():
 @pytest.mark.parametrize("lam", [0.0, 0.5])
 def test_gradient_matches_finite_differences(encoded, lam):
     model, mu, mu_global = encoded
-    fun = objective(float64_copy(model), SCALER, *mu.shape, lam)
     x = np.concatenate([mu.ravel(), mu_global])
+    fun = objective(float64_copy(model), SCALER, *mu.shape, lam, x + 0.3)
     error = check_grad(lambda v: fun(v)[0], lambda v: fun(v)[1], x)
     assert error < 1e-6 * max(1.0, np.linalg.norm(fun(x)[1]))
 
@@ -50,14 +50,15 @@ def test_path_starts_at_the_encoding_and_never_goes_uphill(encoded, lam):
     assert path.log_y_hat[-1] > path.log_y_hat[0]
 
 
-def test_the_prior_penalty_keeps_the_latent_closer_to_the_origin(encoded):
+def test_the_penalty_keeps_the_latent_closer_to_the_start(encoded):
     model, mu, mu_global = encoded
 
-    def final_norm(lam):
+    def distance(lam):
         path = ascend(model, SCALER, mu, mu_global, lam, maxiter=30)
-        return np.linalg.norm(np.r_[path.z[-1].ravel(), path.z_global[-1]])
+        return np.linalg.norm(np.r_[path.z[-1].ravel() - mu.ravel(),
+                                    path.z_global[-1] - mu_global])
 
-    assert final_norm(1.0) < final_norm(0.0)
+    assert distance(1.0) < distance(0.0)
 
 
 def test_bfgs_commutes_with_relabelling(encoded):

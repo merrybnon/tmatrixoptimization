@@ -1,16 +1,22 @@
 """Climb the predicted decay exponent in latent space, one graph at a time, with BFGS.
 
-    pixi run -e ml python -m tm_ml.optimize --run <run> --lam 0 0.01 0.1 1
+    pixi run -e ml python -m tm_ml.optimize --run <run> --lam 0 0.3 1 3
 
-Starts from a test graph's posterior mean and minimizes
+Starts from a test graph's posterior mean x₀ and minimizes
 
-    f(x) = −log ŷ(x) + (λ/2)·‖x‖²
+    f(x) = −log ŷ(x) + (λ/2)·‖x − x₀‖²
 
 over x, the 20 × d_latent node latent flattened with the global appended. The
-second term is −log N(0, I) up to a constant, the VAE's prior: the decoder and
-predictor only ever saw latents the KL term kept near it, so the penalty
-charges the optimizer for leaving the region the model knows. λ = 0 is the
-unregularized run, where nothing stops the predictor extrapolating.
+penalty asks for the best graph near this one, so each start keeps its own
+path. λ = 0 is the unregularized run, where nothing stops the predictor
+extrapolating.
+
+The penalty is anchored at the start rather than at the origin on purpose.
+(λ/2)·‖x‖², the VAE prior, outweighed the whole data range of log ŷ about
+tenfold, and its cheapest move was to make the 20 node latents identical,
+160 of the 161 coordinates, which the equivariant decoder can only turn into
+the uniform matrix. Every start then ended at the same uniform matrix
+whatever ŷ said about it.
 
 Only the predictor enters f. The decoder is the caller's, to draw the path.
 
@@ -60,13 +66,14 @@ def float64_copy(model):
     return copy.deepcopy(model).double().cpu().eval()
 
 
-def objective(model64, scaler, n_nodes, d_latent, lam):
+def objective(model64, scaler, n_nodes, d_latent, lam, anchor):
     """``x -> (f, ∇f)`` in float64 numpy, the form ``minimize(jac=True)`` takes.
 
     The predictor emits standardized log y; undoing the scaler is monotone, so
     it moves no optimum, but it puts f in e-folds of the decay exponent, which
-    is what gives λ units.
+    is what gives λ units. ``anchor`` is x₀, where the penalty is zero.
     """
+    anchor = torch.as_tensor(anchor, dtype=torch.float64)
     split = n_nodes * d_latent
 
     def f(x):
@@ -74,7 +81,7 @@ def objective(model64, scaler, n_nodes, d_latent, lam):
         z = x[:split].reshape(1, n_nodes, d_latent)
         z_global = x[split:].reshape(1, -1)
         log_y_hat = model64.predict(z, z_global)[0] * scaler.std + scaler.mean
-        value = -log_y_hat + 0.5 * lam * x.pow(2).sum()
+        value = -log_y_hat + 0.5 * lam * (x - anchor).pow(2).sum()
         (grad,) = torch.autograd.grad(value, x)
         return value.item(), grad.numpy()
 
@@ -85,9 +92,8 @@ def ascend(model, scaler, mu, mu_global, lam, maxiter=200, gtol=1e-5):
     """BFGS from one graph's encoding ``(mu, mu_global)``, both numpy, unbatched."""
     n_nodes, d_latent = mu.shape
     model64 = float64_copy(model)
-    fun = objective(model64, scaler, n_nodes, d_latent, lam)
-
     x0 = np.concatenate([mu.ravel(), mu_global.ravel()]).astype(np.float64)
+    fun = objective(model64, scaler, n_nodes, d_latent, lam, x0)
     path = [x0]
     result = minimize(fun, x0, jac=True, method="BFGS", callback=lambda xk: path.append(xk.copy()),
                       options={"maxiter": maxiter, "gtol": gtol})
@@ -105,7 +111,7 @@ def ascend(model, scaler, mu, mu_global, lam, maxiter=200, gtol=1e-5):
     # does not hand them back, and one pass over the path costs nothing.
     values, grads = zip(*(fun(x) for x in path))
     values = np.array(values)
-    penalty = 0.5 * lam * (path ** 2).sum(1)
+    penalty = 0.5 * lam * ((path - x0) ** 2).sum(1)
     split = n_nodes * d_latent
     return Ascent(
         z=path[:, :split].reshape(-1, n_nodes, d_latent),
@@ -151,7 +157,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--run", required=True, help="run directory name under results/")
     parser.add_argument("--lam", type=float, nargs="+", default=[0.0],
-                        help="prior-penalty weights λ; each is run on every graph")
+                        help="penalty weights λ on ‖x − x₀‖²; each is run on every graph")
     parser.add_argument("--graphs", type=int, default=N_GRAPHS,
                         help="how many test graphs, from the first")
     parser.add_argument("--maxiter", type=int, default=200)

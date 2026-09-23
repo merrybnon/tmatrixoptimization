@@ -21,7 +21,7 @@ and into ``figures/interpolation_and_traversals/``:
 - ``traversal_PC2.png``   and PC2
 - ``interpolation.png``   straight lines between test graphs, nodes matched first
 - ``optimization_g#.png`` BFGS ascent of the predicted exponent from test
-                          example #, under the prior penalty; decoded along the
+                          example #, penalized by distance from the start; decoded along the
                           path, then the path in the graph-level latent views
 - ``optimization_g#_unreg.png``  the same with no penalty
 
@@ -69,8 +69,8 @@ TRAVERSAL_STEPS = np.arange(-3, 4)
 INTERPOLATION_STEPS = 7
 # Decoded matrices drawn along an optimization path.
 N_OPTIMIZATION_COLUMNS = 7
-# The prior-penalty weight λ for each optimization variant. At λ = 1 every path
-# on the dg1 runs ends at the same near-uniform matrix, which is the finding.
+# The weight λ on ‖x − x₀‖² for each optimization variant, the distance from
+# the start. `optimize.py` says why the penalty is not anchored at the origin.
 OPTIMIZATION_LAMBDA = {"": 1.0, "_unreg": 0.0}
 # Below this rate a dimension is prior noise, not code.
 ACTIVE_DIM_MIN_KL = 0.01
@@ -1065,7 +1065,7 @@ def optimization(model, data, scaler, metrics, device, graph, lam, out):
     bar.ax.tick_params(labelsize=7)
 
     objective = ("f(x) = −log ŷ(x), unregularized" if lam == 0
-                 else f"f(x) = −log ŷ(x) + (λ/2)·‖x‖², λ = {lam:g}")
+                 else f"f(x) = −log ŷ(x) + (λ/2)·‖x − x₀‖², λ = {lam:g}")
     fig.suptitle(f"BFGS latent ascent from test example {graph}: {objective}",
                  fontsize=12, color=INK, x=0.005, ha="left")
     footer(fig, metrics)
