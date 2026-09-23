@@ -57,8 +57,8 @@ Against a reference implementation of the architecture, not yet the committed `m
 
 ### Next steps
 - xExplore the latent representation of the graph more.
-- Finish `models.py` and commit it as is for now.
-- Find literature on the problem of going from landscapes to genetic diversity more broadly.
+- xFinish `models.py` and commit it as is for now.
+- xFind literature on the problem of going from landscapes to genetic diversity more broadly.
 
 ## 2026-09-15 — permutation ledger, the latent-structure decision, GE-VAE, hybrid latents
 
@@ -199,10 +199,10 @@ The headline gap (R² 0.716 vs 0.691) is within what one seed can say. The varia
 `docs/notes/repo_structure.md` is new and holds the layout plus its reasoning, including the `data.yaml` decision, which was implemented in code on 09-14 but never written down — `README.md` and `CLAUDE.md` both still advertised a `config/data.yaml` that was decided against and never created. `parent_path` was added so runs file into folders under `results/`; it is non-determining, so moving a run between folders does not lock it out.
 
 ### Next steps
-- **More seeds before trusting any property number.** The sweep's R² ordering is non-monotone in both axes and uncorrelated with reconstruction, which on single seeds is not a result. Three seeds at `d_latent = 8` across β ∈ {0.05, 0.10, 0.15} is nine runs and about eight minutes; `d_latent` can be dropped as an axis now that β is known to set the effective width.
-- **The auxiliary log-space reconstruction term.** The by-magnitude table is the evidence `architecture.md` asked for before adding it: the weakest decile is off by ×178 while paying nothing. Weak links plausibly govern the timescale being predicted, so this is the reconstruction change most likely to move the property.
-- **Direct optimization without the VAE, as a baseline.** Carried over from 09-15 and still the thing that justifies the latent. Parameterize a matrix by free logits, apply the masked row softmax, train a predictor directly on T, ascend the logits. Expected to find adversarial matrices across 360 free dimensions; if it does not, that is important information about how easy the problem is. Distinct from the combinatorial edge-editing baseline (arXiv 2008.05589), which now has a placeholder row in the ledger.
-- **`device.py` claim files, before any multi-GPU sweep.** `gpu: auto` picks the least-used card, so concurrent jobs launched together all pick the same one. Harmless at this model size — three runs shared one A100 at 2.5 GB and 10% — but it is the documented gap.
+- x**More seeds before trusting any property number.** The sweep's R² ordering is non-monotone in both axes and uncorrelated with reconstruction, which on single seeds is not a result. Three seeds at `d_latent = 8` across β ∈ {0.05, 0.10, 0.15} is nine runs and about eight minutes; `d_latent` can be dropped as an axis now that β is known to set the effective width.
+- x**The auxiliary log-space reconstruction term.** The by-magnitude table is the evidence `architecture.md` asked for before adding it: the weakest decile is off by ×178 while paying nothing. Weak links plausibly govern the timescale being predicted, so this is the reconstruction change most likely to move the property.
+- x**Direct optimization without the VAE, as a baseline.** Carried over from 09-15 and still the thing that justifies the latent. Parameterize a matrix by free logits, apply the masked row softmax, train a predictor directly on T, ascend the logits. Expected to find adversarial matrices across 360 free dimensions; if it does not, that is important information about how easy the problem is. Distinct from the combinatorial edge-editing baseline (arXiv 2008.05589), which now has a placeholder row in the ledger.
+- x**`device.py` claim files, before any multi-GPU sweep.** `gpu: auto` picks the least-used card, so concurrent jobs launched together all pick the same one. Harmless at this model size — three runs shared one A100 at 2.5 GB and 10% — but it is the documented gap.
 
 ## 2026-09-18 — regularization, and where the property overfit actually lives
 
