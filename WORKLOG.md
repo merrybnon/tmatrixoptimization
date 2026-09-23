@@ -423,3 +423,31 @@ Graph 1 is the exception. From λ = 1e-3 upward it converges to ŷ ≈ 420–470
   - penalizing the global and node parts separately
   - checking each endpoint by encoding its decoded matrix again and predicting from that, which exposes latents the decoder maps to one matrix but the predictor scores differently
   - scoring decoded endpoints, uniform included, with Tom's generator, which is the only ground truth for whether the uniform chain decays fastest.
+
+## 2026-09-23 — the data, looked at directly
+
+`src/tm_ml/data_figures.py` draws four figures into `data/processed/<drop>/`, from the processed arrays alone, with no model involved. It runs by hand outside the workflow: `pixi run python -m tm_ml.data_figures --drop Tom1000`. The palette and `style()` moved into a torch-free `src/tm_ml/style.py` so it runs in the default env.
+
+### The target
+
+`target_statistics.png`: a histogram and a survival curve, each on a linear and a log axis. Over the 1000 matrices: mean 389.5, median 295.2, maximum 2041.6, minimum 48.8. Linear, it is strongly right-skewed; on the log axis it is roughly log-normal, which backs predicting log(target).
+
+`example_matrices.png`: the four highest-target matrices, the four nearest the median and the four lowest, in log₁₀ on one shared scale. The low and median rows often carry one or two pale bands, rows whose probability sits almost entirely on one entry. The four highest do not.
+
+### Uniformness does not set the target; the least uniform row does
+
+`uniformness_vs_target.png` and `uniformness_vs_target_log.png` plot four per-matrix measures against the target, one point per matrix. Spearman ρ is across the 1000 matrices, and every measure is taken over each matrix's 380 off-diagonal entries:
+
+| measure | reduced over | ρ vs target |
+|---|---|---|
+| std of entries | all entries | −0.07 |
+| mean row entropy, normalized by log 19 | the 19 entries per row, then the mean over the 20 rows | +0.05 |
+| min row entropy | the same, then the min over the 20 rows | +0.53 |
+| std of log₁₀ entries | all entries, in log₁₀ | −0.62 |
+
+A plain std is a poor measure of uniformness here. Every row has the same mean, 1/19, so it mostly tracks the size of the largest entries. Across matrices it correlates −0.98 with mean row entropy, the principled measure. Neither predicts the target.
+
+What does is the least uniform part of the matrix. A matrix with even one near-deterministic row (min row entropy ≈ 0) almost never goes above a target of about 600. Every target above about 1000 has a log₁₀ spread near 1, the tightest in the drop. This fits the global-latent traversals, where +t evens out the rows, removes the pale bands and raises ŷ. It also bears on the uniform-matrix question from the optimization: overall uniformness is not what the target rewards.
+
+### Next steps
+- Check whether min row entropy or the log₁₀ spread explains what the global latent encodes, by correlating each against the global μ across the test graphs.

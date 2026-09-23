@@ -19,6 +19,7 @@ All notable changes to this project will be documented in this file. The format 
 - `src/tm_ml/optimize.py`: BFGS on the predicted decay exponent in latent space, from one graph's posterior mean, over the node latents and the global flattened together. It runs in float64 on the cpu so the Wolfe line search is not cut short by float32 noise. The penalty is (λ/2)·‖x − x₀‖², distance from the start. It records every accepted iterate, and paths are cut at the first non-finite iterate, since unregularized runs double ‖x‖ each step until float64 overflows. A CLI prints each path with ŷ, ‖x‖, ‖x − x₀‖, ‖∇f‖ and the spectrum of the final H⁻¹ estimate.
 - `src/tm_ml/visualize.py`: `optimization_g{0,1,2}.png` (λ = 1) and `optimization_g{0,1,2}_unreg.png` (λ = 0) in `figures/interpolation_and_traversals/`. Up to seven decoded matrices along the path, then the path over the graph-level views of `latent_property.png` minus the unweighted sorted + global panel. The background is coloured by the true exponent and the path by the predicted one, on one clipped scale. `latent_axes` now holds the dimension ranking that `latent_property` used inline, so the two figures cannot disagree. Wired into `paths.py`, the Snakefile and the stage test.
 - `tests/test_optimize.py`: the gradient against finite differences, a path that starts at the encoding and never goes uphill, the penalty keeping the latent near the start, and BFGS commuting with node relabelling.
+- `src/tm_ml/data_figures.py`: figures describing a processed drop, written beside its arrays in `data/processed/<drop>/` and run by hand outside the workflow. `target_statistics.png` is a histogram and survival curve of the targets on linear and log axes, with the mean, median, maximum and minimum over the drop's matrices. `example_matrices.png` shows the four highest-target, four nearest-median and four lowest-target matrices in log₁₀. `uniformness_vs_target.png` and `_log.png` plot four per-matrix uniformness measures against the target on a linear and a log target axis: std of entries, mean and min normalized row entropy, and std of log₁₀ entries.
 
 ### Removed
 
@@ -30,6 +31,7 @@ All notable changes to this project will be documented in this file. The format 
 
 ### Changed
 
+- `src/tm_ml/style.py`, `visualize.py`: the palette and `style()` moved out of `visualize.py` into a torch-free module, so figures that read only `data/processed/` run in the default env. `visualize.py` draws exactly as before.
 - `src/tm_ml/visualize.py`, `paths.py`, `workflow/Snakefile`: figures move from the run directory root into `results/<run>/figures/`, and figure names are defined once in `paths.py`. Existing runs were migrated by moving their PNGs; the `global_latent` runs were re-rendered.
 - `src/tm_ml/visualize.py`: `latent_property.png` is coloured by the raw decay exponent, the units the property is quoted in, while the property axis ranking stays on log y, which is what the head regresses and R² is measured against.
 - `src/tm_ml/visualize.py`: the body of `latent` moved into `latent_row`, drawn once per latent group; titles and units now name the group, "per node" or "per graph".
