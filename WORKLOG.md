@@ -467,3 +467,33 @@ Two hand-built matrices through the dg1 seed-1 run (`global_latent/TMVAE_b0p01-b
 
 ### Next steps
 - Try minimizing the decay exponent in the latent optimization instead of maximizing it.
+
+## 2026-09-23 — architecture diagrams, and every sweep re-evaluated
+
+### What to call the model
+
+A graph transformer VAE. "Graph Attention VAE" suggests GAT layers, and the encoder is not one: it is scaled dot-product attention with an additive per-head edge bias, the Graphormer mechanism, on a complete graph. `architecture.md` had prescribed the GATv2 form; its update line and sources table now describe what the code does. "Attention GraphVAE" is worse, since GraphVAE is Simonovsky & Komodakis's model, the graph-level latent with graph matching that the design rejects. The closest single source is Kipf & Welling's VGAE: one latent per node and edges decoded from pairs of node latents, with a Graphormer-style encoder in place of their GCN and an asymmetric pair MLP in place of their inner product. The graph-level/node-level split is Edwards & Storkey's Neural Statistician, one context variable per set plus one latent per item; Battaglia's global attribute `u` is the broadcast mechanism, but as a hidden feature rather than a latent.
+
+### Architecture diagrams
+
+`src/tm_ml/architecture.py` writes `figures/architecture.mmd` and `figures/architecture.svg` for every run, from the checkpoint, so the layer counts, widths, pooling mode, graph-level latent, loss weights and per-block parameter counts are the trained ones. The dg1 seed-1 run has 233,584 parameters, 134.0k of them in the four encoder layers. A new `architecture` rule reads only the checkpoint on the cpu and holds no gpu token.
+
+Three Mermaid constraints shaped it:
+
+- **A subgraph keeps its own direction only if no node inside it links to a node outside.** Every edge between blocks therefore joins whole subgraphs. The layout is left to right, encoder → latent → decoder → T̂, with the predictor branching off the latent into the decoder's column, below it.
+- **Block diagrams were tried and rejected.** They place boxes exactly, but every row gets the same height and every column the same width, boxes stretch to fill their cells, and blocks pack their contents too tightly for arrows inside them.
+- **Labels were clipped in viewers with other fonts.** mermaid-cli measures each box once, in whatever font the headless browser resolves. Mermaid's default stack leads with Trebuchet MS, which this Linux box lacks, so boxes were sized for a narrower fallback and cut off the ends of labels wherever Trebuchet exists. The stack now leads with Arial, which Arimo and Liberation Sans match metrically, and labels are SVG text, which overhangs rather than clips if a viewer still substitutes. Forcing DejaVu Sans onto the old SVG reproduced the clipping; onto the new one, nothing is cut.
+
+### Every sweep re-evaluated
+
+`paths.py` gained the figure-name constants this morning, which made evaluate and visualize stale for every run. All eight sweeps except `smoke`, which would have trained four runs from scratch, went through the full pipeline: 89 runs evaluated, visualized and given a diagram. The first pass exposed two bugs, both fixed:
+
+- evaluate read `cfg["lambda_log"]`, absent from every checkpoint trained before the field existed; it now reads the model config, whose defaults of 0 and 1 are how those runs trained.
+- the optimization figures crashed at `d_latent = 1`, where the graph-mean views had one axis instead of two; the y axis is now held at 0. Snakemake deleted that run's existing figures when the job failed, and the rerun restored them.
+
+Re-evaluation is deterministic, as expected: across the 89 ledger rows no metric column changed. What moved is the git hash, the evaluation time, the free memory recorded for the card, and `lambda_log` and `lambda_recon` filled in on older rows that had them blank. 113 runs have checkpoints; the other 24 belong to no current sweep file and have no diagram.
+
+### Next steps
+- Draw diagrams for the 24 runs outside the current sweeps, if they are still of interest, with `pixi run -e ml architecture --run <run>`.
+- `architecture.md`'s sources table still credits Gilmer and Simonovsky & Komodakis for edge-conditioned messages, which the code does not have: edges enter only through the attention bias.
+- The SVG render depends on npx fetching mermaid-cli and a headless Chrome, so a fresh machine needs network access the first time.
