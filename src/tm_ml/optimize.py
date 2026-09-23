@@ -92,6 +92,14 @@ def ascend(model, scaler, mu, mu_global, lam, maxiter=200, gtol=1e-5):
     result = minimize(fun, x0, jac=True, method="BFGS", callback=lambda xk: path.append(xk.copy()),
                       options={"maxiter": maxiter, "gtol": gtol})
     path = np.stack(path)
+    message = result.message
+    # Unregularized, far enough out the predictor is linear in x, f has a
+    # constant slope, and each step doubles ‖x‖ until float64 overflows. The
+    # overflowed iterate is not a latent anything can decode, so it is cut.
+    finite = np.isfinite(path).all(1)
+    if not finite.all():
+        path = path[:np.argmin(finite)]
+        message += f" Path cut at iterate {len(path)}, where the latent overflowed."
 
     # f and its gradient again at each kept iterate: BFGS evaluates them but
     # does not hand them back, and one pass over the path costs nothing.
@@ -108,7 +116,7 @@ def ascend(model, scaler, mu, mu_global, lam, maxiter=200, gtol=1e-5):
         lam=lam,
         nit=result.nit,
         nfev=result.nfev,
-        message=result.message,
+        message=message,
         hess_inv=np.asarray(result.hess_inv),
     )
 
