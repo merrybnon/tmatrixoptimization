@@ -78,6 +78,12 @@ DIAGNOSTIC_FIGURES = ("training_curve", "predictions", "reconstruction", "latent
                       "latent_property")
 TRAVERSAL_AXES = ("gbd", "PC1", "PC2")
 INTERPOLATIONS = ("interpolation",)
+# BFGS latent optimization from each of these test examples, once regularized
+# and once not; the suffix names the variant.
+OPTIMIZATION_GRAPHS = (0, 1, 2)
+OPTIMIZATION_VARIANTS = ("", "_unreg")
+OPTIMIZATIONS = tuple(f"optimization_g{graph}{variant}"
+                      for graph in OPTIMIZATION_GRAPHS for variant in OPTIMIZATION_VARIANTS)
 
 # Field to name token. `model` and `drop` are excluded because they are named
 # separately, at the front and the back.

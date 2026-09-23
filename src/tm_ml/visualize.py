@@ -20,6 +20,10 @@ and into ``figures/interpolation_and_traversals/``:
 - ``traversal_PC1.png``   the same along sorted-160 PC1
 - ``traversal_PC2.png``   and PC2
 - ``interpolation.png``   straight lines between test graphs, nodes matched first
+- ``optimization_g#.png`` BFGS ascent of the predicted exponent from test
+                          example #, under the prior penalty; decoded along the
+                          path, then the path in the graph-level latent views
+- ``optimization_g#_unreg.png``  the same with no penalty
 
 Reads `history.csv` and `metrics.json`, and re-runs the model for the examples,
 so it needs `evaluate.py` to have gone first.
@@ -28,6 +32,7 @@ so it needs `evaluate.py` to have gone first.
 import argparse
 import csv
 import json
+import textwrap
 from datetime import datetime, timezone
 
 import matplotlib
@@ -40,7 +45,7 @@ import matplotlib.pyplot as plt  # noqa: E402
 from matplotlib.colors import LinearSegmentedColormap, TwoSlopeNorm  # noqa: E402
 
 from tm_ml import evaluate as evaluate_module
-from tm_ml import paths
+from tm_ml import optimize, paths
 from tm_ml.ingest import git_commit
 from tm_ml.models import TMVAEConfig, off_diagonal
 
@@ -62,6 +67,11 @@ N_EXAMPLES = 3
 # Traversal steps, in units of the axis's between-graph σ.
 TRAVERSAL_STEPS = np.arange(-3, 4)
 INTERPOLATION_STEPS = 7
+# Decoded matrices drawn along an optimization path.
+N_OPTIMIZATION_COLUMNS = 7
+# The prior-penalty weight λ for each optimization variant. At λ = 1 every path
+# on the dg1 runs ends at the same near-uniform matrix, which is the finding.
+OPTIMIZATION_LAMBDA = {"": 1.0, "_unreg": 0.0}
 # Below this rate a dimension is prior noise, not code.
 ACTIVE_DIM_MIN_KL = 0.01
 LOG_FLOOR = 1e-12
@@ -426,6 +436,45 @@ def node_features(T):
     }
 
 
+def latent_axes(mu, log_y, metrics, d_global):
+    """Which node dimensions the graph-level panels plot, ranked two ways.
+
+    Shared by `latent_property` and `optimization`, so an optimization path is
+    drawn in exactly the axes `latent_property.png` shows. ``by_rate`` orders
+    the live dimensions by KL, ``by_property`` by |r| of the graph mean with
+    log y; ``top_global`` is the highest-rate global dimension, or None.
+    """
+    n_graphs, _, d_latent = mu.shape
+    flat = mu.reshape(-1, d_latent)
+    graph_mean = mu.mean(1)
+    kl_per_dim = np.asarray(
+        metrics.get("latent_kl_per_dim") or np.zeros(d_latent), dtype=float
+    )
+    # A dead dimension sits at mu = 0, sigma = 1. It carries nothing, and left in
+    # it would win the correlation ranking on sampling noise alone.
+    live = np.flatnonzero((kl_per_dim > ACTIVE_DIM_MIN_KL) & (flat.var(0) > 0))
+    if live.size == 0:
+        live = np.arange(d_latent)
+
+    by_rate = live[np.argsort(kl_per_dim[live])[::-1]]
+    enough = n_graphs > 2 and log_y.std() > 0
+    if enough:
+        correlation = np.array([
+            np.corrcoef(graph_mean[:, d], log_y)[0, 1] for d in range(d_latent)
+        ])
+        by_property = live[np.argsort(np.abs(correlation[live]))[::-1]]
+    else:
+        correlation = np.full(d_latent, np.nan)
+        by_property = by_rate
+
+    global_kl = np.asarray(metrics.get("global_kl_per_dim") or np.zeros(d_global), dtype=float)
+    return {
+        "kl_per_dim": kl_per_dim, "live": live, "by_rate": by_rate,
+        "by_property": by_property, "correlation": correlation, "enough": enough,
+        "global_kl": global_kl, "top_global": int(np.argmax(global_kl)) if d_global else None,
+    }
+
+
 def latent_property(data, scaler, metrics, out):
     """Where graphs land in the latent, and whether that place tracks the property.
 
@@ -456,25 +505,10 @@ def latent_property(data, scaler, metrics, out):
     graph_mean = mu.mean(1)
     rng = np.random.default_rng(0)
 
-    kl_per_dim = np.asarray(
-        metrics.get("latent_kl_per_dim") or np.zeros(d_latent), dtype=float
-    )
-    # A dead dimension sits at mu = 0, sigma = 1. It carries nothing, and left in
-    # it would win the correlation ranking on sampling noise alone.
-    live = np.flatnonzero((kl_per_dim > ACTIVE_DIM_MIN_KL) & (flat.var(0) > 0))
-    if live.size == 0:
-        live = np.arange(d_latent)
-
-    by_rate = live[np.argsort(kl_per_dim[live])[::-1]]
-    enough = n_graphs > 2 and log_y.std() > 0
-    if enough:
-        correlation = np.array([
-            np.corrcoef(graph_mean[:, d], log_y)[0, 1] for d in range(d_latent)
-        ])
-        by_property = live[np.argsort(np.abs(correlation[live]))[::-1]]
-    else:
-        correlation = np.full(d_latent, np.nan)
-        by_property = by_rate
+    ranked = latent_axes(mu, log_y, metrics, data["mu_global"].shape[1])
+    kl_per_dim, live = ranked["kl_per_dim"], ranked["live"]
+    by_rate, by_property = ranked["by_rate"], ranked["by_property"]
+    correlation, enough = ranked["correlation"], ranked["enough"]
 
     # Law of total variance over the node axis. The share is small and the
     # information is not: this is the 3% the property rides on.
@@ -821,6 +855,224 @@ def interpolation(model, data, scaler, metrics, device, out):
     )
 
 
+def graph_views(mu, mu_global, log_y, metrics):
+    """The graph-level panels of `latent_property`, as projections an iterate can use.
+
+    Each view is ``(title, xlabel, ylabel, project)``, where ``project`` takes
+    latents ``(k, n_nodes, d_latent)`` and ``(k, d_global)`` to ``(k, 2)``. The
+    axes, PCA means and components are fitted on the test encodings once and
+    then applied unchanged, so a latent that is not a graph's encoding lands
+    exactly where a graph with that encoding would.
+
+    ``latent_property``'s "sorted + global, unweighted" panel is left out. The
+    global there is one column beside n_nodes·d_latent sorted values and barely
+    loads on the top two components, so the panel repeats the sorted PCA and
+    hides the global, which is where the ascent mostly moves.
+    """
+    n_graphs, n_nodes, d_latent = mu.shape
+    d_global = mu_global.shape[1]
+    ranked = latent_axes(mu, log_y, metrics, d_global)
+    correlation, kl_per_dim = ranked["correlation"], ranked["kl_per_dim"]
+    n_sorted = n_nodes * d_latent
+
+    def two(order):
+        """The first two dimensions, padded when fewer are live."""
+        order = list(order)
+        return (order + [d for d in range(d_latent) if d not in order])[:2]
+
+    def label(dim, basis):
+        if basis == "rate":
+            return f"graph mean, dim {dim} — {kl_per_dim[dim]:.2f} nats"
+        return f"graph mean, dim {dim} — r {correlation[dim]:+.2f}"
+
+    def means(dims):
+        return lambda z, z_global: z.mean(1)[:, dims]
+
+    views = [
+        ("Graph means, highest-rate axes", *[label(d, "rate") for d in two(ranked["by_rate"])],
+         means(two(ranked["by_rate"]))),
+        ("Graph means, property axes", *[label(d, "property") for d in two(ranked["by_property"])],
+         means(two(ranked["by_property"]))),
+    ]
+
+    if n_graphs > 2:
+        mean, singular, right = principal_axes(sorted_descriptor(mu))
+        captured = (singular[:2] ** 2).sum() / max((singular ** 2).sum(), LOG_FLOOR)
+
+        def sorted_pcs(z, z_global):
+            return (sorted_descriptor(z) - mean) @ right[:2].T
+    else:
+        sorted_pcs = None
+
+    if d_global:
+        top = ranked["top_global"]
+        g_label = f"global dim {top} — {ranked['global_kl'][top]:.2f} nats"
+        for dim, basis, criterion in ((ranked["by_rate"][0], "rate", "highest-rate"),
+                                      (ranked["by_property"][0], "property", "top property")):
+            views.append((f"Global against the {criterion} node dim", g_label, label(dim, basis),
+                          lambda z, z_global, dim=dim: np.c_[z_global[:, top], z.mean(1)[:, dim]]))
+        if sorted_pcs is not None:
+            views.append((f"Global against sorted-{n_sorted} PC1", g_label,
+                          f"sorted-{n_sorted} PC1",
+                          lambda z, z_global: np.c_[z_global[:, top], sorted_pcs(z, z_global)[:, 0]]))
+
+    if sorted_pcs is not None:
+        views.append((f"All {n_sorted}, sorted invariant — top 2 hold {captured:.1%}",
+                      f"sorted-{n_sorted} PC1", f"sorted-{n_sorted} PC2", sorted_pcs))
+
+    if d_global and n_graphs > 2:
+        weight = np.sqrt(n_nodes)
+        global_mean = mu_global.mean(0)
+
+        def joint(z, z_global):
+            return np.c_[sorted_descriptor(z), weight * (z_global - global_mean)]
+
+        joint_mean, _, joint_right = principal_axes(joint(mu, mu_global))
+        n_joint = n_sorted + d_global
+        views.append((f"Sorted + global ×√{n_nodes}", f"sorted-{n_joint} PC1",
+                      f"sorted-{n_joint} PC2",
+                      lambda z, z_global: (joint(z, z_global) - joint_mean) @ joint_right[:2].T))
+    return views
+
+
+def path_columns(log_y_hat, n_columns):
+    """Iterates to draw: the start, the end, and those nearest evenly spaced log ŷ.
+
+    Even in log ŷ rather than in iteration because BFGS gains most of its ground
+    in a few steps; evenly spaced iterations would be mostly the same matrix.
+    The path need not be monotone in ŷ once the penalty is on, so this is
+    nearest-value, not interpolation. Repeats collapse, and the columns they
+    free go to the unused iterates, evenly in iteration.
+    """
+    last = len(log_y_hat) - 1
+    targets = np.linspace(log_y_hat[0], log_y_hat[-1], n_columns)[1:-1]
+    chosen = {0, last, *(int(np.argmin(np.abs(log_y_hat - t))) for t in targets)}
+    unused = np.setdiff1d(np.arange(last + 1), sorted(chosen))
+    spare = min(n_columns - len(chosen), len(unused))
+    if spare > 0:
+        chosen |= set(unused[np.linspace(0, len(unused) - 1, spare).round().astype(int)].tolist())
+    return sorted(chosen)
+
+
+def decay_text(log_y):
+    """A decay exponent that may have run off to 10^1000 without becoming inf."""
+    if log_y < np.log(1e6):
+        return f"{np.exp(log_y):.0f}"
+    return f"10^{log_y / np.log(10):.1f}"
+
+
+def optimization(model, data, scaler, metrics, device, graph, lam, out):
+    """BFGS from one test graph: its decoded path, then the path in latent space.
+
+    The top row is decoded matrices at selected iterates, drawn like the
+    traversals. Below are the graph-level views of `latent_property` with the
+    100 test graphs faded behind the path: every accepted iterate, the start
+    square, the end a star, arrows in iteration order. The background is
+    coloured by the true exponent and the path by the predicted one, on one
+    scale fitted to the data, so a path that leaves the data's range clips at
+    the top colour and its final value is written on the panel instead.
+    """
+    mu = data["mu"].numpy()
+    mu_global = data["mu_global"].numpy()
+    log_y = scaler.inverse(data["y"].numpy())
+    if graph >= len(mu):
+        return placeholder(metrics, out, f"Optimization — no test example {graph}")
+    decay = np.exp(log_y)
+
+    path = optimize.ascend(model, scaler, mu[graph], mu_global[graph], lam)
+    columns = path_columns(path.log_y_hat, N_OPTIMIZATION_COLUMNS)
+    decoded, _ = decode_batch(model, device, scaler, path.z[columns], path.z_global[columns])
+    views = graph_views(mu, mu_global, log_y, metrics)
+
+    n_rows = int(np.ceil((len(views) + 1) / 4))
+    height = 2.6 + 3.9 * n_rows + 1.6
+    fig = plt.figure(figsize=(17, height))
+    outer = fig.add_gridspec(2, 1, height_ratios=[2.6, 3.9 * n_rows],
+                             left=0.045, right=0.955, top=1 - 0.8 / height,
+                             bottom=0.75 / height, hspace=0.9 / (2.6 + 3.9 * n_rows) * 2)
+
+    top = outer[0].subgridspec(1, N_OPTIMIZATION_COLUMNS + 1,
+                               width_ratios=[1] * N_OPTIMIZATION_COLUMNS + [0.05], wspace=0.12)
+    floor = reconstruction_floor(data, N_EXAMPLES)
+    for column, (k, matrix) in enumerate(zip(columns, decoded)):
+        ax = fig.add_subplot(top[column])
+        image = ax.imshow(matrix, cmap=SEQUENTIAL, vmin=floor, vmax=0.0, interpolation="nearest")
+        ax.set_xticks([])
+        ax.set_yticks([])
+        ax.grid(False)
+        head = "start (recon)" if k == 0 else ("final" if k == columns[-1] else "")
+        text = f"iter {k}" + (f" — {head}" if head else "")
+        text += f"\nŷ {decay_text(path.log_y_hat[k])}"
+        if k == 0:
+            text += f"  ·  true {decay[graph]:.0f}"
+        ax.set_title(text, fontsize=9)
+    bar = fig.colorbar(image, cax=fig.add_subplot(top[N_OPTIMIZATION_COLUMNS]))
+    bar.set_label("log₁₀ T̂", fontsize=8, color=INK_SOFT)
+    bar.ax.tick_params(labelsize=7)
+
+    lower = outer[1].subgridspec(n_rows, 5, width_ratios=[1, 1, 1, 1, 0.05],
+                                 wspace=0.32, hspace=0.42)
+    norm = plt.Normalize(decay.min(), decay.max())
+    # Colour only; the text on each panel carries the real value past the clip.
+    path_colour = np.exp(np.minimum(path.log_y_hat, np.log(decay.max()) + 1.0))
+    for index, (title, xlabel, ylabel, project) in enumerate(views):
+        ax = fig.add_subplot(lower[index // 4, index % 4])
+        background = project(mu, mu_global)
+        ax.scatter(background[:, 0], background[:, 1], c=decay, cmap=SEQUENTIAL,
+                   norm=norm, s=30, alpha=0.4, linewidth=0)
+        points = project(path.z, path.z_global)
+        for k in range(len(points) - 1):
+            if not np.allclose(points[k], points[k + 1]):
+                ax.annotate("", xy=points[k + 1], xytext=points[k],
+                            arrowprops=dict(arrowstyle="-|>", color=INK, lw=0.8,
+                                            mutation_scale=8, shrinkA=2, shrinkB=2))
+        for sl, marker, size in ((slice(1, -1), "o", 24), (slice(0, 1), "s", 70),
+                                 (slice(-1, None), "*", 190)):
+            ax.scatter(points[sl, 0], points[sl, 1], c=path_colour[sl], cmap=SEQUENTIAL,
+                       norm=norm, marker=marker, s=size, edgecolor=INK, linewidth=0.8,
+                       zorder=3)
+        ax.set_title(title)
+        ax.set_xlabel(xlabel)
+        ax.set_ylabel(ylabel)
+
+    # The spare panel: how the run ended, and what the markers are.
+    ax = fig.add_subplot(lower[len(views) // 4, len(views) % 4])
+    ax.set_axis_off()
+    moved = np.linalg.norm(
+        np.c_[path.z.reshape(len(path.z), -1), path.z_global][-1]
+        - np.r_[path.z[0].ravel(), path.z_global[0]])
+    ax.text(0.0, 1.0,
+            f"test example {graph}, true decay exponent {decay[graph]:.0f}\n"
+            f"ŷ {decay_text(path.log_y_hat[0])} → {decay_text(path.log_y_hat[-1])}\n"
+            f"‖x − x₀‖ = {moved:.3g} after {path.nit} iterations,\n"
+            f"{path.nfev} evaluations\n"
+            + textwrap.fill(f"exit: {path.message}", 44),
+            va="top", fontsize=8.5, color=INK, transform=ax.transAxes)
+    for marker, size, name in (("s", 70, "start, the graph's encoding"),
+                               ("o", 24, "BFGS iterate"), ("*", 190, "final iterate")):
+        ax.scatter([], [], marker=marker, s=size, color=SURFACE, edgecolor=INK,
+                   linewidth=0.8, label=name)
+    ax.scatter([], [], s=30, color=TRAIN, alpha=0.4, linewidth=0,
+               label="test graphs, true exponent")
+    ax.legend(loc="lower left", fontsize=8)
+
+    # A mappable of its own, so the bar shows the colours at full strength
+    # rather than at the background's transparency.
+    bar = fig.colorbar(plt.cm.ScalarMappable(norm=norm, cmap=SEQUENTIAL),
+                       cax=fig.add_subplot(lower[:, 4]), extend="max")
+    bar.set_label("decay exponent — true for test graphs, predicted on the path",
+                  fontsize=8, color=INK_SOFT)
+    bar.ax.tick_params(labelsize=7)
+
+    objective = ("f(x) = −log ŷ(x), unregularized" if lam == 0
+                 else f"f(x) = −log ŷ(x) + (λ/2)·‖x‖², λ = {lam:g}")
+    fig.suptitle(f"BFGS latent ascent from test example {graph}: {objective}",
+                 fontsize=12, color=INK, x=0.005, ha="left")
+    footer(fig, metrics)
+    fig.savefig(out)
+    plt.close(fig)
+
+
 def decode_batch(model, device, scaler, z, z_global):
     """Latents to ``(log10 T̂, predicted decay exponent)``, one entry per step."""
     with torch.no_grad():
@@ -912,6 +1164,12 @@ def visualize(run, num_threads=1):
     }
     jobs += [(traversals / f"{name}.png", interpolations[name])
              for name in paths.INTERPOLATIONS]
+    jobs += [
+        (traversals / f"optimization_g{graph}{variant}.png",
+         lambda p, g=graph, lam=OPTIMIZATION_LAMBDA[variant]:
+             optimization(model, data, scaler, metrics, device, g, lam, p))
+        for graph in paths.OPTIMIZATION_GRAPHS for variant in paths.OPTIMIZATION_VARIANTS
+    ]
 
     written = []
     for path, draw in jobs:

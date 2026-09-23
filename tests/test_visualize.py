@@ -11,7 +11,9 @@ FIGURES = tuple(f"figures/{name}.png" for name in (
     "training_curve", "predictions", "reconstruction", "latent", "latent_property"
 )) + tuple(f"figures/interpolation_and_traversals/traversal_{axis}.png"
            for axis in ("gbd", "PC1", "PC2")) + (
-    "figures/interpolation_and_traversals/interpolation.png",)
+    "figures/interpolation_and_traversals/interpolation.png",) + tuple(
+    f"figures/interpolation_and_traversals/optimization_g{graph}{variant}.png"
+    for graph in (0, 1, 2) for variant in ("", "_unreg"))
 
 
 @pytest.mark.parametrize("d_global", [0, 1])

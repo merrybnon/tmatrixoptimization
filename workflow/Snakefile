@@ -27,8 +27,8 @@ import re
 
 from tm_ml.config import expand_sweep
 from tm_ml.ingest import RAW_DIR, find_source
-from tm_ml.paths import (DIAGNOSTIC_FIGURES, FIGURES, INTERPOLATIONS, TRAVERSAL_AXES,
-                         TRAVERSALS, run_path)
+from tm_ml.paths import (DIAGNOSTIC_FIGURES, FIGURES, INTERPOLATIONS, OPTIMIZATIONS,
+                         TRAVERSAL_AXES, TRAVERSALS, run_path)
 
 ALL_DROPS = sorted(p.name for p in RAW_DIR.iterdir() if p.is_dir())
 
@@ -50,7 +50,7 @@ BENCHMARKS_CSV = "docs/benchmarks/runs.csv"
 # Every figure visualize writes, relative to a run directory.
 FIGURE_FILES = [f"{FIGURES}/{name}.png" for name in DIAGNOSTIC_FIGURES] + [
     f"{FIGURES}/{TRAVERSALS}/traversal_{axis}.png" for axis in TRAVERSAL_AXES
-] + [f"{FIGURES}/{TRAVERSALS}/{name}.png" for name in INTERPOLATIONS]
+] + [f"{FIGURES}/{TRAVERSALS}/{name}.png" for name in INTERPOLATIONS + OPTIMIZATIONS]
 
 
 # Without these a wildcard spans slashes, so `results/{run}/best.pt` would match
@@ -162,7 +162,7 @@ rule visualize:
         # this after evaluate — a real dependency rather than a directive.
         metrics="results/{run}/metrics.json",
         data=run_data,
-        src=[f"{PKG}/visualize.py", f"{PKG}/evaluate.py"] + SHARED_SRC,
+        src=[f"{PKG}/visualize.py", f"{PKG}/evaluate.py", f"{PKG}/optimize.py"] + SHARED_SRC,
     output:
         expand("results/{{run}}/{figure}", figure=FIGURE_FILES),
     log:
