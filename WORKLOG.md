@@ -377,8 +377,8 @@ One trap for reading the figures: a collapsed global still has a posterior mean 
 `latent.png` gains a global row beneath the node row. `latent_property.png` gains two rows for global runs: the global against the best graph-mean node axis by rate, by property and by sorted PC1, and the sorted PCA with the global appended raw and at ×√20. Raw, the global is 4–6% of the variance and loads ≈ 0–0.24 on the top two components; at ×√20 it takes PC1 at ≈ 0.99. Neither weighting is privileged, so both are drawn, and the global-against-PC1 panel says the same thing more directly.
 
 ### Next steps
-- **Latent traversals and interpolation.** Decode along each active dimension, node and global, holding the rest at a graph's encoding, and show the matrix and its predicted property changing. The global is the natural first traversal, being a single graph-level scalar that needs no alignment. Interpolation between two graphs needs the Hungarian alignment of node slots from 09-14 first, since the node latent is a set; the global half interpolates directly.
-- **Optimizing the property in latent space.** Gradient ascent on the predicted property from an encoded matrix, the goal the architecture was built for; ascent equivariance is already verified in `architecture.md`. The global axis, r ≈ 0.8 with log y, is a candidate one-dimensional search direction to compare against full ascent. Predicted gains mean nothing until the decoded matrices are scored by the true generator, which lives outside the repo.
+- x**Latent traversals and interpolation.** Decode along each active dimension, node and global, holding the rest at a graph's encoding, and show the matrix and its predicted property changing. The global is the natural first traversal, being a single graph-level scalar that needs no alignment. Interpolation between two graphs needs the Hungarian alignment of node slots from 09-14 first, since the node latent is a set; the global half interpolates directly.
+- x**Optimizing the property in latent space.** Gradient ascent on the predicted property from an encoded matrix, the goal the architecture was built for; ascent equivariance is already verified in `architecture.md`. The global axis, r ≈ 0.8 with log y, is a candidate one-dimensional search direction to compare against full ascent. Predicted gains mean nothing until the decoded matrices are scored by the true generator, which lives outside the repo.
 
 ## 2026-09-23 — latent traversals
 
@@ -395,3 +395,31 @@ Existing runs were migrated: 417 PNGs across 100 runs moved into `figures/`, and
 `interpolation.png` joins the traversals: test 0 → 1, 1 → 2 and 2 → 0, seven evenly spaced steps along the straight line between the two encodings. The node latent is a set, so the right graph's nodes are first Hungarian-matched to the left's on squared distance between node μ; the global interpolates unmatched. Every column is drawn in the left graph's node order, and the right end is exactly the right graph's reconstruction relabelled, which a test checks through the decoder's equivariance.
 
 On the dg1 seed-1 run matching roughly halves the mean paired node distance (2.80 → 1.46, 2.89 → 1.69, 2.88 → 1.68), and ŷ moves smoothly between the endpoints on every row. Along 1 → 2 (235 → 649) it changes slowly at first and faster toward the end, and example 1's pale weak-link bands fade by about α = 3/6.
+
+### Latent optimization
+
+`src/tm_ml/optimize.py` runs BFGS (`scipy.optimize.minimize`) from a test graph's posterior mean x₀, over the 161-vector of node latents plus the global. It runs in float64 on the cpu, because float32 noise breaks the Wolfe line search early. Only the predictor enters the objective. `visualize` adds `optimization_g#.png` and `optimization_g#_unreg.png` for test examples 0–2: the decoded matrices at up to seven iterates, then the path drawn over the graph-level views of `latent_property.png`. The unweighted sorted + global panel is dropped, since the global barely loads on it. All figures are rendered for the 12 `global_latent` runs; each run takes about 18 s. The CLI (`python -m tm_ml.optimize --run <run> --lam ...`) prints every iterate, and the numbers below come from it, on dg1 seed 1 unless stated.
+
+**Every decoded iterate is a valid transition matrix.** Row sums are within 3e-16 of 1 in float64, the diagonal is exactly 0, and every off-diagonal entry is positive. This holds even at ‖x‖ = 6e16, because the masked row softmax guarantees it and LayerNorm in the decoder keeps the logits bounded however far out z goes.
+
+**Unregularized, the ascent runs away.** Far from the data the GELU predictor is linear in x, so f = −log ŷ has a constant slope and no bottom. Each BFGS step doubles ‖x‖. The line search ends in "precision loss" within 2–22 iterations, the H⁻¹ estimate picks up negative eigenvalues, and on dg4 seed 0 the 51st iterate overflowed float64. Paths are now cut at the first non-finite iterate. The endpoints decode to flattened matrices, with max/min between 1.7× and 10⁴× against about 10¹⁰ in the data, but not to the uniform matrix.
+
+**Prior penalty, f = −log ŷ + (λ/2)·‖x‖².** At λ = 1 all 36 paths (12 runs × 3 graphs) end at the same point, which decodes to exactly the uniform matrix. This is not an optimum of the decay exponent, and ŷ there is only 281; graph 2 went down, from 649. Two things produce it:
+
+- The penalty is about 40 nats at the start, and the whole data range of log ŷ spans only 3.7, so BFGS mostly shrinks x.
+- The cheapest way to shrink x is to make the 20 node latents identical: their spread falls to about 1e-8, against 0.50–0.69 for test graphs. With identical nodes, the equivariant decoder cannot tell them apart and must emit the uniform matrix.
+
+Random identical-node latents decode to exactly uniform while the predictor gives them ŷ from 347 to 525. At λ = 0.1 the nodes collapse the same way, while the global alone carries ŷ to 91,700. **The decoder gives the same uniform matrix for many different latents, and the predictor scores each one differently.**
+
+**Distance-from-start penalty, f = −log ŷ + (λ/2)·‖x − x₀‖².** No node collapse at any λ. The current figures use λ = 1: graphs 0, 1 and 2 go 88 → 153, 235 → 279 and 649 → 1,330, moving 0.4–0.9 against a median distance of 11.5 to the nearest other test graph. The movement is almost all along the global.
+
+Sweeping λ from 1e-4 to 1e-1, the endpoints never converge to one solution; they spread apart as λ falls (endpoint separation 4.9 at λ = 1, 2,140 at 1e-4), since each path's penalty is centred on its own start. Near-uniform matrices appear only in the runaway regime. At 1e-4 about half of the 12 runs decode to max/min under 2 on all three graphs, but those latents are about 8,000 from the data and ŷ has overflowed.
+
+Graph 1 is the exception. From λ = 1e-3 upward it converges to ŷ ≈ 420–470 within 2–5 of its start, keeping a data-like spread of entries. It is the one basin seen so far where the predictor has a real local maximum.
+
+### Next steps
+- **Regularize the optimization so it reproduces the expected optima.** Neither penalty does yet. The origin-anchored prior converges, but through the decoder's symmetry, not through ŷ. The start-anchored penalty stays local and never finds a shared optimum. Candidates:
+  - a data-fitted prior, the aggregate posterior of node latents and global, in place of N(0, I)
+  - penalizing the global and node parts separately
+  - checking each endpoint by encoding its decoded matrix again and predicting from that, which exposes latents the decoder maps to one matrix but the predictor scores differently
+  - scoring decoded endpoints, uniform included, with Tom's generator, which is the only ground truth for whether the uniform chain decays fastest.
