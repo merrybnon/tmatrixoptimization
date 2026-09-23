@@ -851,14 +851,25 @@ def graph_views(mu, mu_global, log_y, metrics):
             return f"graph mean, dim {dim} — {kl_per_dim[dim]:.2f} nats"
         return f"graph mean, dim {dim} — r {correlation[dim]:+.2f}"
 
-    def means(dims):
-        return lambda z, z_global: z.mean(1)[:, dims]
+    def means(title, order, basis):
+        """A graph-mean view on the first two dimensions of `order`.
+
+        At d_latent = 1 there is no second dimension to pad with, so y is held
+        at zero and the path runs along a line. `latent_property` jitters
+        instead, which works for one scatter but not here: the projection is
+        applied to the background and to each iterate separately, so jitter
+        would scatter the path.
+        """
+        dims = two(order)
+        if len(dims) == 2:
+            return (title, label(dims[0], basis), label(dims[1], basis),
+                    lambda z, z_global: z.mean(1)[:, dims])
+        return (title, label(dims[0], basis), "held at 0 — one latent dimension",
+                lambda z, z_global: np.c_[z.mean(1)[:, dims[0]], np.zeros(len(z))])
 
     views = [
-        ("Graph means, highest-rate axes", *[label(d, "rate") for d in two(ranked["by_rate"])],
-         means(two(ranked["by_rate"]))),
-        ("Graph means, property axes", *[label(d, "property") for d in two(ranked["by_property"])],
-         means(two(ranked["by_property"]))),
+        means("Graph means, highest-rate axes", ranked["by_rate"], "rate"),
+        means("Graph means, property axes", ranked["by_property"], "property"),
     ]
 
     if n_graphs > 2:

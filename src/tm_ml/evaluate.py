@@ -401,9 +401,11 @@ def evaluate(run, batch_size=None, num_threads=1):
         "n_test": splits.sizes["test"],
         "split_seed": cfg["seed"],
         # Determining, and the reconstruction plots read it to say which
-        # objective the by-magnitude panel is showing.
-        "lambda_log": cfg["lambda_log"],
-        "lambda_recon": cfg["lambda_recon"],
+        # objective the by-magnitude panel is showing. Read off the model
+        # config, whose defaults stand in for a checkpoint trained before the
+        # field existed, where the run config has no key at all.
+        "lambda_log": model_cfg.lambda_log,
+        "lambda_recon": model_cfg.lambda_recon,
         "best_epoch": checkpoint["epoch"],
         "best_score": checkpoint["score"],
         "best_metric": checkpoint["metric"],

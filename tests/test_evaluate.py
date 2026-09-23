@@ -168,3 +168,18 @@ def test_train_then_evaluate_end_to_end(wired, tiny_config):
 def test_evaluate_without_a_checkpoint_says_so(wired):
     with pytest.raises(SystemExit, match="train the run first"):
         evaluate.evaluate("TMVAE_Nonexistent_Tiny40")
+
+
+def test_evaluate_reads_a_checkpoint_from_before_the_loss_weights(wired, tiny_config):
+    # Runs trained before lambda_log and lambda_recon existed saved neither in
+    # either config; evaluation has to fall back to how they were trained.
+    train.train(tiny_config)
+    path = paths.resolve(tiny_config["run"]) / paths.CHECKPOINT
+    checkpoint = torch.load(path, map_location="cpu", weights_only=False)
+    for key in ("lambda_log", "lambda_recon"):
+        checkpoint["config"].pop(key)
+        checkpoint["model_config"].pop(key)
+    torch.save(checkpoint, path)
+
+    m = evaluate.evaluate(tiny_config["run"])
+    assert (m["lambda_log"], m["lambda_recon"]) == (0.0, 1.0)

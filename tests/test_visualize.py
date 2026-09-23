@@ -16,10 +16,11 @@ FIGURES = tuple(f"figures/{name}.png" for name in (
     for graph in (0, 1, 2) for variant in ("", "_unreg"))
 
 
-@pytest.mark.parametrize("d_global", [0, 1])
-def test_visualize_writes_every_figure(wired, tiny_config, d_global):
+@pytest.mark.parametrize("d_global, d_latent", [(0, 8), (1, 8), (0, 1)])
+def test_visualize_writes_every_figure(wired, tiny_config, d_global, d_latent):
     # Without a global the gbd traversal is a placeholder; with one it is drawn.
-    tiny_config = tiny_config | {"d_global": d_global}
+    # d_latent = 1 leaves the graph-mean views a single axis to plot.
+    tiny_config = tiny_config | {"d_global": d_global, "d_latent": d_latent}
     tiny_config["run"] = paths.run_path(tiny_config)
     train.train(tiny_config)
     evaluate.evaluate(tiny_config["run"])
