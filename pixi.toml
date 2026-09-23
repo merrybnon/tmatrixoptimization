@@ -30,6 +30,7 @@ platforms = ["linux-64-cuda"]
 train = "python -m tm_ml.train"
 evaluate = "python -m tm_ml.evaluate"
 visualize = "python -m tm_ml.visualize"
+architecture = "python -m tm_ml.architecture"
 benchmarks = "python -m tm_ml.benchmarks"
 pipeline = "snakemake --snakefile workflow/Snakefile"
 
