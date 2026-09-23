@@ -74,6 +74,16 @@ def diagram(m, cfg, counts, run):
         "---",
         f"title: {run} · {total:,} parameters",
         "config:",
+        # Box widths are measured once, at render, in whatever font the
+        # headless browser resolves, then frozen into the SVG. Mermaid's default
+        # stack leads with Trebuchet MS, which Linux lacks, so boxes were sized
+        # for a fallback and a viewer that has Trebuchet cut the ends off
+        # labels. Arial, Arimo and Liberation Sans share metrics, so this stack
+        # measures and displays at the same width almost anywhere. SVG text
+        # rather than HTML labels is the backstop: an HTML label is clipped to
+        # its box when the viewer's font runs wider, SVG text just overhangs.
+        "  htmlLabels: false",
+        "  fontFamily: \"Arial, Arimo, 'Liberation Sans', Helvetica, sans-serif\"",
         "  flowchart:",
         "    wrappingWidth: 320",
         "---",
@@ -89,7 +99,7 @@ def diagram(m, cfg, counts, run):
         '  subgraph ENC["Encoder · edge-biased graph transformer"]',
         "    direction TB",
         f'    NF["node features · {n}×{N_NODE_FEATURES}<br/>'
-        'col sum, row and col entropy, row and col max"]',
+        'col sum, row and col entropy<br/>row and col max"]',
         f'    EF["edge features · {n}×{n}×{N_EDGE_FEATURES}<br/>'
         'T_ij, T_ji, log T_ij, log T_ji, is_self"]',
         f'    NI["LayerNorm → Linear {N_NODE_FEATURES} → {h}'
@@ -120,7 +130,7 @@ def diagram(m, cfg, counts, run):
         "",
         '  subgraph DEC["Decoder · equivariant"]',
         "    direction TB",
-        f'    FL["{"concat z_graph onto every z_i → " if g else ""}'
+        f'    FL["{"concat z_graph onto every z_i<br/>" if g else ""}'
         f'Linear {m.d_latent + g} → {h}<br/>{_k(counts["from_latent"])} params"]',
         f'    DL["{m.decoder_layers} × attention layer, no edge bias<br/>{layer}'
         f'<br/>{_k(counts["decoder"])} params"]',

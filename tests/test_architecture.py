@@ -17,6 +17,9 @@ def test_architecture_writes_source_from_checkpoint(wired, tiny_config, d_global
     assert [p.relative_to(run_dir).as_posix() for p in written] == ["figures/architecture.mmd"]
     source = written[0].read_text()
     assert "flowchart LR" in source
+    # HTML labels are clipped to their box when a viewer's font runs wider than
+    # the one the render measured with; SVG text is not.
+    assert "htmlLabels: false" in source
     # Blocks link as whole subgraphs; a node-level edge leaving one would make
     # Mermaid drop that block's own direction.
     assert "T --> ENC --> LAT --> DEC --> TH" in source
