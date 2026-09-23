@@ -389,3 +389,9 @@ PC1 and PC2 are sorted-160 rather than raw-160 because node labels are arbitrary
 First read on the dg1 seed-1 run. The global is strongly one-sided. On test example 2, ŷ goes 649 → 2251 at +2σ but only 649 → 305 at −2σ; on example 0 it barely moves below zero (88 → 92 at −3σ) and climbs to 767 at +3σ. Visually, +t evens out the rows and removes the pale weak-link bands. Sorted PC1 (15.1% of variance) is smooth and near log-linear, moving ŷ about ±30–50% over ±3σ, far less than the global.
 
 Existing runs were migrated: 417 PNGs across 100 runs moved into `figures/`, and the 12 `global_latent` runs re-rendered.
+
+### Interpolation
+
+`interpolation.png` joins the traversals: test 0 → 1, 1 → 2 and 2 → 0, seven evenly spaced steps along the straight line between the two encodings. The node latent is a set, so the right graph's nodes are first Hungarian-matched to the left's on squared distance between node μ; the global interpolates unmatched. Every column is drawn in the left graph's node order, and the right end is exactly the right graph's reconstruction relabelled, which a test checks through the decoder's equivariance.
+
+On the dg1 seed-1 run matching roughly halves the mean paired node distance (2.80 → 1.46, 2.89 → 1.69, 2.88 → 1.68), and ŷ moves smoothly between the endpoints on every row. Along 1 → 2 (235 → 649) it changes slowly at first and faster toward the end, and example 1's pale weak-link bands fade by about α = 3/6.
