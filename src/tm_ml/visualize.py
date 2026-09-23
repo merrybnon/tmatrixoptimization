@@ -42,25 +42,14 @@ from scipy.optimize import linear_sum_assignment
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt  # noqa: E402
-from matplotlib.colors import LinearSegmentedColormap, TwoSlopeNorm  # noqa: E402
+from matplotlib.colors import TwoSlopeNorm  # noqa: E402
 
 from tm_ml import evaluate as evaluate_module
 from tm_ml import optimize, paths
 from tm_ml.ingest import git_commit
 from tm_ml.models import TMVAEConfig, off_diagonal
-
-# The validated categorical slots, in fixed order, assigned to entities rather
-# than to rank: split 1 is always train, split 2 always val, whatever is drawn.
-TRAIN, VAL, THIRD = "#2a78d6", "#eb6834", "#1baf7a"
-INK, INK_SOFT, GRID, SURFACE = "#0b0b0b", "#52514e", "#dcdbd6", "#fcfcfb"
-
-# One hue, light to dark, for magnitude. A rainbow would invent structure.
-SEQUENTIAL = LinearSegmentedColormap.from_list(
-    "blue", ["#cde2fb", "#9ec5f4", "#6da7ec", "#3987e5", "#256abf", "#104281", "#0d366b"]
-)
-# Two poles and a neutral gray midpoint, for signed error.
-DIVERGING = LinearSegmentedColormap.from_list(
-    "blue_red", ["#104281", "#6da7ec", "#f0efec", "#e87b7b", "#8f1f1f"]
+from tm_ml.style import (
+    DIVERGING, INK, INK_SOFT, SEQUENTIAL, SURFACE, THIRD, TRAIN, VAL, style,
 )
 
 N_EXAMPLES = 3
@@ -75,29 +64,6 @@ OPTIMIZATION_LAMBDA = {"": 1.0, "_unreg": 0.0}
 # Below this rate a dimension is prior noise, not code.
 ACTIVE_DIM_MIN_KL = 0.01
 LOG_FLOOR = 1e-12
-
-
-def style():
-    plt.rcParams.update({
-        "figure.facecolor": SURFACE,
-        "axes.facecolor": SURFACE,
-        "axes.edgecolor": GRID,
-        "axes.labelcolor": INK_SOFT,
-        "axes.titlesize": 10,
-        "axes.titlecolor": INK,
-        "axes.labelsize": 9,
-        "axes.grid": True,
-        "grid.color": GRID,
-        "grid.linewidth": 0.6,
-        "xtick.color": INK_SOFT,
-        "ytick.color": INK_SOFT,
-        "xtick.labelsize": 8,
-        "ytick.labelsize": 8,
-        "legend.frameon": False,
-        "legend.fontsize": 8,
-        "lines.linewidth": 1.8,
-        "figure.dpi": 140,
-    })
 
 
 def footer(fig, metrics):
