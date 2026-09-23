@@ -379,3 +379,13 @@ One trap for reading the figures: a collapsed global still has a posterior mean 
 ### Next steps
 - **Latent traversals and interpolation.** Decode along each active dimension, node and global, holding the rest at a graph's encoding, and show the matrix and its predicted property changing. The global is the natural first traversal, being a single graph-level scalar that needs no alignment. Interpolation between two graphs needs the Hungarian alignment of node slots from 09-14 first, since the node latent is a set; the global half interpolates directly.
 - **Optimizing the property in latent space.** Gradient ascent on the predicted property from an encoded matrix, the goal the architecture was built for; ascent equivariance is already verified in `architecture.md`. The global axis, r ≈ 0.8 with log y, is a candidate one-dimensional search direction to compare against full ascent. Predicted gains mean nothing until the decoded matrices are scored by the true generator, which lives outside the repo.
+
+## 2026-09-23 — latent traversals
+
+Figures now live in `results/<run>/figures/`, and `visualize` adds three traversals in `figures/interpolation_and_traversals/`: the highest-rate global dimension and sorted-160 PC1 and PC2. Each is 3 test graphs × 7 steps, t ∈ {−3 … +3}·σ from the graph's own encoding, where σ is the spread of the axis coordinate over the 100 test graphs. The centre column is the reconstruction, and every matrix carries its predicted decay exponent. A PC or latent dimension has no natural sign, so each axis is oriented so that +t raises log y across the test graphs.
+
+PC1 and PC2 are sorted-160 rather than raw-160 because node labels are arbitrary. Over exchangeable slots the raw covariance has only two kinds of eigenvector: a uniform shift, which is just the graph-mean PCs broadcast to every node, and slot contrasts, each degenerate 19-fold in expectation, so which one comes out is sampling noise. A step along a sorted PC is decoded by shifting the sorted values and putting each rank back on the node that held it.
+
+First read on the dg1 seed-1 run. The global is strongly one-sided. On test example 2, ŷ goes 649 → 2251 at +2σ but only 649 → 305 at −2σ; on example 0 it barely moves below zero (88 → 92 at −3σ) and climbs to 767 at +3σ. Visually, +t evens out the rows and removes the pale weak-link bands. Sorted PC1 (15.1% of variance) is smooth and near log-linear, moving ŷ about ±30–50% over ±3σ, far less than the global.
+
+Existing runs were migrated: 417 PNGs across 100 runs moved into `figures/`, and the 12 `global_latent` runs re-rendered.

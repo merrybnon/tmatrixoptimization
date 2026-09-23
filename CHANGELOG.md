@@ -14,6 +14,7 @@ All notable changes to this project will be documented in this file. The format 
 - `src/tm_ml/visualize.py`: `latent_property.png`, a fifth figure — node latents and graph means in the highest-rate and highest-property bases, a table of what each node dimension correlates with among equivariant node features, and a PCA of the sorted-160 descriptor, which unlike the raw flattened latent does not depend on node labelling. Wired into the Snakefile and the stage test.
 - `config/sweeps/global_dims.yaml`: the first trained graph-level latent, `d_global` ∈ {1, 2, 3, 4} × three seeds at β 0.01. Exactly one global dimension goes active at ≈ 2.9 nats whatever the width, R² does not move off baseline, and the graph-level signal relocates from the node latents into it rather than being added.
 - `src/tm_ml/visualize.py`: global rows in both latent figures, drawn only when `d_global > 0` so every existing run's figures are unchanged. `latent.png` repeats spectrum, per-dimension rate and effective width for the global. `latent_property.png` gains the global against the best graph-mean node axis by rate, property and sorted PC1, a graph-feature correlation column for the global, and the sorted PCA with the global appended both raw and weighted by √n_nodes, each panel carrying the global's loading, since which weight is right is not settled and the answer turns on it.
+- `src/tm_ml/visualize.py`: latent traversal figures, `traversal_gbd.png`, `traversal_PC1.png` and `traversal_PC2.png` in `figures/interpolation_and_traversals/`. Three test graphs by seven steps of t·σ along the highest-rate global dimension or a sorted-160 PC, decoded from each graph's own encoding with the predicted decay exponent above every matrix. A sorted-PC step is un-sorted back onto the nodes by rank. A run with no global latent gets a placeholder `traversal_gbd.png`, so the Snakemake outputs stay static.
 
 ### Removed
 
@@ -25,6 +26,7 @@ All notable changes to this project will be documented in this file. The format 
 
 ### Changed
 
+- `src/tm_ml/visualize.py`, `paths.py`, `workflow/Snakefile`: figures move from the run directory root into `results/<run>/figures/`, and figure names are defined once in `paths.py`. Existing runs were migrated by moving their PNGs; the `global_latent` runs were re-rendered.
 - `src/tm_ml/visualize.py`: `latent_property.png` is coloured by the raw decay exponent, the units the property is quoted in, while the property axis ranking stays on log y, which is what the head regresses and R² is measured against.
 - `src/tm_ml/visualize.py`: the body of `latent` moved into `latent_row`, drawn once per latent group; titles and units now name the group, "per node" or "per graph".
 - `src/tm_ml/visualize.py`: the by-magnitude panel of `reconstruction.png` no longer asserts "forward KL weights each term by T_ij, so the left of this plot is nearly free" unconditionally. That is true only at `lambda_log = 0`; once the log-space term is on, the left of the plot is what is being paid for, and calling it free reads as a defect rather than the result.
