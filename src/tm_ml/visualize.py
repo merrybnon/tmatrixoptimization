@@ -19,6 +19,7 @@ and into ``figures/interpolation_and_traversals/``:
 - ``traversal_gbd.png``   decoded matrices stepping along the global dimension
 - ``traversal_PC1.png``   the same along sorted-160 PC1
 - ``traversal_PC2.png``   and PC2
+- ``interpolation.png``   straight lines between test graphs, nodes matched first
 
 Reads `history.csv` and `metrics.json`, and re-runs the model for the examples,
 so it needs `evaluate.py` to have gone first.
@@ -32,6 +33,7 @@ from datetime import datetime, timezone
 import matplotlib
 import numpy as np
 import torch
+from scipy.optimize import linear_sum_assignment
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt  # noqa: E402
@@ -59,6 +61,7 @@ DIVERGING = LinearSegmentedColormap.from_list(
 N_EXAMPLES = 3
 # Traversal steps, in units of the axis's between-graph σ.
 TRAVERSAL_STEPS = np.arange(-3, 4)
+INTERPOLATION_STEPS = 7
 # Below this rate a dimension is prior noise, not code.
 ACTIVE_DIM_MIN_KL = 0.01
 LOG_FLOOR = 1e-12
@@ -736,41 +739,125 @@ def traversal(model, data, scaler, metrics, device, axis, out):
         title = (f"Sorted-{n_sorted} {axis} traversal: z = μ + t·σ·v — "
                  f"σ = {sigma:.3f}, {share:.1%} of latent variance")
 
-    decoded, predicted = [], []
-    with torch.no_grad():
-        for graph in range(rows):
-            z, z_global = (torch.as_tensor(a, dtype=torch.float32, device=device)
-                           for a in latents(graph))
-            T_hat, _ = model.decode(z, z_global)
-            decoded.append(log_matrix(T_hat.cpu().numpy()))
-            predicted.append(np.exp(scaler.inverse(model.predict(z, z_global).cpu().numpy())))
+    decoded, predicted = zip(*(
+        decode_batch(model, device, scaler, *latents(graph)) for graph in range(rows)
+    ))
     true = np.exp(log_y[:rows])
-    # The reconstruction figure's scale, so the centre column reads against it.
-    floor = float(np.nanpercentile(log_matrix(data["T"][:rows].numpy()), 2))
-
-    fig = plt.figure(figsize=(16, 2.45 * rows + 1.1))
-    grid = fig.add_gridspec(
-        rows, n_steps + 1, width_ratios=[1] * n_steps + [0.05],
-        left=0.03, right=0.95, top=1 - 0.95 / (2.45 * rows + 1.1),
-        bottom=0.3 / (2.45 * rows + 1.1), wspace=0.12, hspace=0.32,
-    )
     centre = n_steps // 2
+    titles = []
     for row in range(rows):
+        titles.append([])
         for column, t in enumerate(TRAVERSAL_STEPS):
+            value = f"ŷ {predicted[row][column]:.0f}"
+            if column == centre:
+                value += f"  ·  true {true[row]:.0f}"
+            header = "t = 0 (recon)" if t == 0 else f"t = {t:+d}σ"
+            titles[row].append(f"{header}\n{value}" if row == 0 else value)
+
+    draw_matrix_grid(decoded, titles, [f"test example {row}" for row in range(rows)],
+                     reconstruction_floor(data, rows), title, metrics, out)
+
+
+def align_nodes(mu_a, mu_b):
+    """The relabelling of B's nodes that puts them nearest A's, as an index array.
+
+    ``mu_b[align_nodes(mu_a, mu_b)]`` is B with node i matched to A's node i,
+    minimising the summed squared distance between paired node latents. The
+    node latent is a set, so slot i of two graphs are unrelated nodes until
+    this pairs them; anything combining two latents needs it first.
+    """
+    cost = ((mu_a[:, None, :] - mu_b[None, :, :]) ** 2).sum(-1)
+    rows, columns = linear_sum_assignment(cost)
+    return columns[np.argsort(rows)]
+
+
+def interpolation(model, data, scaler, metrics, device, out):
+    """Straight lines in latent space between test graphs, after node matching.
+
+    Row i runs from test example i to example i + 1, wrapping, so the three
+    rows are 0 → 1, 1 → 2 and 2 → 0 — the graphs `reconstruction.png` shows.
+    B's node latents are first relabelled onto A's by `align_nodes`; the global
+    is graph-level and interpolates as it is. Everything is drawn in A's node
+    order, so the right end is B's reconstruction permuted by the match, which
+    the decoder's equivariance makes exact.
+    """
+    mu = data["mu"].numpy()
+    mu_global = data["mu_global"].numpy()
+    log_y = scaler.inverse(data["y"].numpy())
+    rows = min(N_EXAMPLES, len(mu))
+    if rows < 2:
+        return placeholder(metrics, out, "Interpolation — needs 2+ test graphs")
+    alpha = np.linspace(0.0, 1.0, INTERPOLATION_STEPS)[:, None, None]
+    true = np.exp(log_y[:rows])
+
+    decoded, titles, labels = [], [], []
+    for row in range(rows):
+        a, b = row, (row + 1) % rows
+        matched = mu[b][align_nodes(mu[a], mu[b])]
+        z = (1 - alpha) * mu[a] + alpha * matched
+        z_global = (1 - alpha[:, 0]) * mu_global[a] + alpha[:, 0] * mu_global[b]
+        log_T_hat, predicted = decode_batch(model, device, scaler, z, z_global)
+        decoded.append(log_T_hat)
+
+        # Mean distance between paired node latents, as labelled and as matched.
+        raw = np.linalg.norm(mu[a] - mu[b], axis=-1).mean()
+        aligned = np.linalg.norm(mu[a] - matched, axis=-1).mean()
+        labels.append(f"test {a} → {b}\nnode dist {raw:.2f} → {aligned:.2f}")
+
+        titles.append([])
+        for column, step in enumerate(alpha[:, 0, 0]):
+            value = f"ŷ {predicted[column]:.0f}"
+            if column in (0, INTERPOLATION_STEPS - 1):
+                value += f"  ·  true {true[a if column == 0 else b]:.0f}"
+            # The row label names the pair; a header naming it would fit row 0 only.
+            header = (f"α = {step:.0f}" if column in (0, INTERPOLATION_STEPS - 1)
+                      else f"α = {column}/{INTERPOLATION_STEPS - 1}")
+            titles[row].append(f"{header}\n{value}" if row == 0 else value)
+
+    draw_matrix_grid(
+        decoded, titles, labels, reconstruction_floor(data, rows),
+        "Interpolation: z = (1 − α)·μ_A + α·P·μ_B, P the node match; "
+        "global z_g interpolated unmatched", metrics, out,
+    )
+
+
+def decode_batch(model, device, scaler, z, z_global):
+    """Latents to ``(log10 T̂, predicted decay exponent)``, one entry per step."""
+    with torch.no_grad():
+        z, z_global = (torch.as_tensor(a, dtype=torch.float32, device=device)
+                       for a in (z, z_global))
+        T_hat, _ = model.decode(z, z_global)
+        log_y_hat = model.predict(z, z_global).cpu().numpy()
+    return log_matrix(T_hat.cpu().numpy()), np.exp(scaler.inverse(log_y_hat))
+
+
+def reconstruction_floor(data, rows):
+    """The reconstruction figure's colour floor, so decoded grids read against it."""
+    return float(np.nanpercentile(log_matrix(data["T"][:rows].numpy()), 2))
+
+
+def draw_matrix_grid(decoded, titles, row_labels, floor, title, metrics, out):
+    """Rows of decoded log10 matrices on one shared scale, titled cell by cell."""
+    rows, columns = len(decoded), len(decoded[0])
+    height = 2.45 * rows + 1.1
+    fig = plt.figure(figsize=(16, height))
+    grid = fig.add_gridspec(
+        rows, columns + 1, width_ratios=[1] * columns + [0.05],
+        left=0.045, right=0.95, top=1 - 0.95 / height, bottom=0.3 / height,
+        wspace=0.12, hspace=0.32,
+    )
+    for row in range(rows):
+        for column in range(columns):
             ax = fig.add_subplot(grid[row, column])
             image = ax.imshow(decoded[row][column], cmap=SEQUENTIAL, vmin=floor, vmax=0.0,
                               interpolation="nearest")
             ax.set_xticks([])
             ax.set_yticks([])
             ax.grid(False)
-            value = f"ŷ {predicted[row][column]:.0f}"
-            if column == centre:
-                value += f"  ·  true {true[row]:.0f}"
-            header = "t = 0 (recon)" if t == 0 else f"t = {t:+d}σ"
-            ax.set_title(f"{header}\n{value}" if row == 0 else value, fontsize=9)
+            ax.set_title(titles[row][column], fontsize=9)
             if column == 0:
-                ax.set_ylabel(f"test example {row}", fontsize=8)
-    colorbar = fig.colorbar(image, cax=fig.add_subplot(grid[:, n_steps]))
+                ax.set_ylabel(row_labels[row], fontsize=8)
+    colorbar = fig.colorbar(image, cax=fig.add_subplot(grid[:, columns]))
     colorbar.set_label("log₁₀ T̂", fontsize=8, color=INK_SOFT)
     colorbar.ax.tick_params(labelsize=7)
 
@@ -820,6 +907,11 @@ def visualize(run, num_threads=1):
          lambda p, a=axis: traversal(model, data, scaler, metrics, device, a, p))
         for axis in paths.TRAVERSAL_AXES
     ]
+    interpolations = {
+        "interpolation": lambda p: interpolation(model, data, scaler, metrics, device, p),
+    }
+    jobs += [(traversals / f"{name}.png", interpolations[name])
+             for name in paths.INTERPOLATIONS]
 
     written = []
     for path, draw in jobs:

@@ -77,6 +77,7 @@ TRAVERSALS = "interpolation_and_traversals"
 DIAGNOSTIC_FIGURES = ("training_curve", "predictions", "reconstruction", "latent",
                       "latent_property")
 TRAVERSAL_AXES = ("gbd", "PC1", "PC2")
+INTERPOLATIONS = ("interpolation",)
 
 # Field to name token. `model` and `drop` are excluded because they are named
 # separately, at the front and the back.
