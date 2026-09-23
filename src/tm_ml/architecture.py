@@ -77,37 +77,39 @@ def diagram(m, cfg, counts, run):
         "  flowchart:",
         "    wrappingWidth: 320",
         "---",
-        "flowchart LR",
-        f'  T[/"T · {n}×{n} transition matrix, zero diagonal"/]',
-        f'  TH[/"T̂ · {n}×{n}, row-stochastic, zero diagonal"/]',
+        "flowchart TB",
+        # The main row, read left to right. Mermaid drops a subgraph's own
+        # direction as soon as any node inside it links to a node outside, so
+        # the only edge leaving the row is from the row itself. That is what
+        # keeps the encoder, latent and decoder level with each other and the
+        # predictor underneath all three, rather than laid out as a fourth
+        # column. It also means the predictor's arrow leaves from the bottom of
+        # the row rather than from the latent box.
+        '  subgraph ROW[" "]',
+        "    direction LR",
+        f'    T[/"T · {n}×{n} transition matrix, zero diagonal"/]',
+        f'    TH[/"T̂ · {n}×{n}, row-stochastic, zero diagonal"/]',
         "",
-        '  subgraph ENC["Encoder · edge-biased graph transformer"]',
-        "    direction TB",
-        f'    NF["node features · {n}×{N_NODE_FEATURES}<br/>'
+        '    subgraph ENC["Encoder · edge-biased graph transformer"]',
+        "      direction TB",
+        f'      NF["node features · {n}×{N_NODE_FEATURES}<br/>'
         'col sum, row and col entropy, row and col max"]',
-        f'    EF["edge features · {n}×{n}×{N_EDGE_FEATURES}<br/>'
+        f'      EF["edge features · {n}×{n}×{N_EDGE_FEATURES}<br/>'
         'T_ij, T_ji, log T_ij, log T_ji, is_self"]',
-        f'    NI["LayerNorm → Linear {N_NODE_FEATURES} → {h}'
+        f'      NI["LayerNorm → Linear {N_NODE_FEATURES} → {h}'
         f'<br/>{_k(counts["node_in"])} params"]',
-        f'    EB["edge bias MLP {N_EDGE_FEATURES} → {m.edge_hidden} → {m.n_heads}'
+        f'      EB["edge bias MLP {N_EDGE_FEATURES} → {m.edge_hidden} → {m.n_heads}'
         f'<br/>one bias b_ij per head · {_k(counts["edge_in"])} params"]',
-        f'    EL["{m.encoder_layers} × attention layer<br/>'
+        f'      EL["{m.encoder_layers} × attention layer<br/>'
         f'softmax_j( q_i·k_j / √d + b_ij )<br/>{layer}<br/>'
         f'{_k(counts["encoder"])} params"]',
-        "    NF --> NI --> EL",
-        "    EF --> EB",
-        '    EB -. "same bias, every layer" .-> EL',
-        "  end",
+        "      NF --> NI --> EL",
+        "      EF --> EB",
+        '      EB -. "same bias, every layer" .-> EL',
+        "    end",
         "",
-        # The middle column. Mermaid drops a subgraph's own direction as soon
-        # as any node inside it links to a node outside, so everything that
-        # crosses between columns is an edge between whole subgraphs. That is
-        # what keeps the predictor hanging down off the latent rather than
-        # laid out as a fourth column beside the decoder.
-        '  subgraph MID[" "]',
-        "    direction TB",
         '    subgraph LAT["Latent"]',
-        "      direction LR",
+        "      direction TB",
         f'      ZN(["z_i · {n}×{m.d_latent} node latents<br/>'
         f'Linear {h} → 2×{m.d_latent}: μ_i, log σ²_i<br/>'
         f'{_k(counts["to_latent"])} params"])',
@@ -119,42 +121,42 @@ def diagram(m, cfg, counts, run):
         )
     lines += [
         "    end",
-        '    subgraph PRED["Predictor · invariant"]',
+        "",
+        '    subgraph DEC["Decoder · equivariant"]',
         "      direction TB",
-        f'      PO["{_pool_label(m)}<br/>{_k(counts["pool"])} params"]',
-        f'      MP["{"concat z_graph → " if g else ""}MLP '
-        f'{(m.d_latent if m.pooling == "mean" else m.predictor_hidden) + g} → '
-        f'{m.predictor_hidden} → {m.predictor_hidden} → 1'
-        f'<br/>{_k(counts["predictor"])} params"]',
-        "      PO --> MP",
-        "    end",
-        '    Y[/"log ŷ · log decay exponent"/]',
-        "    ZN --> PO",
-        *(["    ZG --> MP"] if g else []),
-        "    MP --> Y",
-        "  end",
-        "",
-        '  subgraph DEC["Decoder · equivariant"]',
-        "    direction TB",
-        f'    FL["{"concat z_graph onto every z_i → " if g else ""}'
+        f'      FL["{"concat z_graph onto every z_i → " if g else ""}'
         f'Linear {m.d_latent + g} → {h}<br/>{_k(counts["from_latent"])} params"]',
-        f'    DL["{m.decoder_layers} × attention layer, no edge bias<br/>{layer}'
+        f'      DL["{m.decoder_layers} × attention layer, no edge bias<br/>{layer}'
         f'<br/>{_k(counts["decoder"])} params"]',
-        f'    PF["pair MLP [h_i ; h_j] · {2 * h} → {m.pair_hidden} → 1'
+        f'      PF["pair MLP [h_i ; h_j] · {2 * h} → {m.pair_hidden} → 1'
         f'<br/>asymmetric, logits {n}×{n} · {_k(counts["pair"])} params"]',
-        '    SM["diagonal → −∞, then row softmax"]',
-        "    FL --> DL --> PF --> SM",
-        "  end",
+        '      SM["diagonal → −∞, then row softmax"]',
+        "      FL --> DL --> PF --> SM",
+        "    end",
         "",
-        f'  L{{{{"loss<br/>{cfg.get("lambda_recon", 1.0):g} · Σ_i KL(T_i ‖ T̂_i)'
+        f'    L{{{{"loss<br/>{cfg.get("lambda_recon", 1.0):g} · Σ_i KL(T_i ‖ T̂_i)'
         f' + {cfg.get("lambda_log", 0.0):g} · log-space recon<br/>'
         f'+ {cfg["beta"]:g} · KL(q ‖ N(0, I)){" node + graph" if g else ""}'
         f'<br/>+ {cfg["gamma"]:g} · (log ŷ − log y)²"}}}}',
         "",
-        "  T --> ENC --> MID --> DEC --> TH",
-        "  TH -.-> L",
+        "    T --> ENC --> LAT --> DEC --> TH",
+        "    TH -.-> L",
+        "  end",
         "",
-        "  style MID fill:none,stroke:none",
+        '  subgraph PRED["Predictor · invariant, reads the latent"]',
+        "    direction TB",
+        f'    PO["{_pool_label(m)}<br/>{_k(counts["pool"])} params"]',
+        f'    MP["{"concat z_graph → " if g else ""}MLP '
+        f'{(m.d_latent if m.pooling == "mean" else m.predictor_hidden) + g} → '
+        f'{m.predictor_hidden} → {m.predictor_hidden} → 1'
+        f'<br/>{_k(counts["predictor"])} params"]',
+        "    PO --> MP",
+        "  end",
+        '  Y[/"log ŷ · log decay exponent"/]',
+        "",
+        "  ROW --> PRED --> Y",
+        "",
+        "  style ROW fill:none,stroke:none",
         "  classDef io fill:#eef2f7,stroke:#56657a",
         "  classDef latent fill:#fdf1dc,stroke:#b07a1e",
         "  classDef loss fill:#f7e8ea,stroke:#9a4452",

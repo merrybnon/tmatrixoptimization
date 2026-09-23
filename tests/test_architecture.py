@@ -16,10 +16,11 @@ def test_architecture_writes_source_from_checkpoint(wired, tiny_config, d_global
 
     assert [p.relative_to(run_dir).as_posix() for p in written] == ["figures/architecture.mmd"]
     source = written[0].read_text()
-    assert "flowchart LR" in source
-    # Columns link as whole subgraphs; a node-level edge across them would make
-    # Mermaid drop the middle column's direction and lay the predictor sideways.
-    assert "T --> ENC --> MID --> DEC --> TH" in source
+    assert "flowchart TB" in source
+    # Blocks link as whole subgraphs; a node-level edge leaving the row would
+    # make Mermaid drop its left-to-right direction.
+    assert "T --> ENC --> LAT --> DEC --> TH" in source
+    assert "ROW --> PRED --> Y" in source
     assert f"{tiny_config['encoder_layers']} × attention layer" in source
     # The graph-level latent is drawn only when the run has one.
     assert ("z_graph" in source) == bool(d_global)
