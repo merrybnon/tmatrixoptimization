@@ -1,10 +1,10 @@
 """Run-directory naming and resolution.
 
 A run lives at ``results/<run_name>/`` and holds everything for one trained
-model: the checkpoint, the history, the metrics, the figures and the logs. The
-name is a pure function of the resolved config, so the workflow can compute
-every output path before torch is imported — which is what makes the sweep a
-Snakemake DAG rather than a shell loop.
+model: the checkpoint, the history, the metrics, the logs, and the figures
+under ``figures/``. The name is a pure function of the resolved config, so the
+workflow can compute every output path before torch is imported — which is what
+makes the sweep a Snakemake DAG rather than a shell loop.
 
 The name carries the fields that differ from `NAME_BASELINE`, so a baseline run
 is ``TMVAE_Tom1000`` and a two-axis sweep reads as what it varied:
@@ -71,6 +71,12 @@ METRICS = "metrics.json"
 STORED_CONFIG = "config.json"
 RESOLVED_CONFIG = "config.yaml"
 TRAIN_META = "train_meta.json"
+# Figures sit in their own folder inside the run, traversals one level deeper.
+FIGURES = "figures"
+TRAVERSALS = "interpolation_and_traversals"
+DIAGNOSTIC_FIGURES = ("training_curve", "predictions", "reconstruction", "latent",
+                      "latent_property")
+TRAVERSAL_AXES = ("gbd", "PC1", "PC2")
 
 # Field to name token. `model` and `drop` are excluded because they are named
 # separately, at the front and the back.

@@ -2,9 +2,9 @@
 
     pixi run -e ml visualize --run TMVAE_b0p15-bw20-e300-lff0p05-schcosine_Tom1000
 
-Five PNGs into the run directory, each stamped with a provenance footer — run,
-checkpoint epoch and score, drop, split seed, git hash, timestamp — so a figure
-is self-describing wherever it ends up:
+PNGs into ``figures/`` in the run directory, each stamped with a provenance
+footer — run, checkpoint epoch and score, drop, split seed, git hash, timestamp —
+so a figure is self-describing wherever it ends up:
 
 - ``training_curve.png``  the loss terms and the three schedules, per epoch
 - ``predictions.png``     the property, predicted against true, on the test split
@@ -13,6 +13,12 @@ is self-describing wherever it ends up:
 - ``latent.png``          how many latent dimensions are actually carrying code
 - ``latent_property.png`` where graphs sit in the latent, coloured by the
                           property, at node and graph level and in two bases
+
+and into ``figures/interpolation_and_traversals/``:
+
+- ``traversal_gbd.png``   decoded matrices stepping along the global dimension
+- ``traversal_PC1.png``   the same along sorted-160 PC1
+- ``traversal_PC2.png``   and PC2
 
 Reads `history.csv` and `metrics.json`, and re-runs the model for the examples,
 so it needs `evaluate.py` to have gone first.
@@ -51,6 +57,8 @@ DIVERGING = LinearSegmentedColormap.from_list(
 )
 
 N_EXAMPLES = 3
+# Traversal steps, in units of the axis's between-graph σ.
+TRAVERSAL_STEPS = np.arange(-3, 4)
 # Below this rate a dimension is prior noise, not code.
 ACTIVE_DIM_MIN_KL = 0.01
 LOG_FLOOR = 1e-12
@@ -211,15 +219,35 @@ def predictions(data, scaler, metrics, out):
     plt.close(fig)
 
 
+def log_matrix(T):
+    """log10 of the off-diagonal entries, the structural zero diagonal left blank."""
+    off = off_diagonal(T.shape[-1], torch.device("cpu")).numpy()
+    return np.where(off, np.log10(np.clip(T, 1e-14, None)), np.nan)
+
+
+def sorted_descriptor(mu):
+    """Each dimension's node values sorted, flattened: ``(graphs, n_nodes * d_latent)``.
+
+    Sorting each dimension's 20 node values independently is invariant to
+    relabelling, which the raw flattened 160-vector is not: node slot i holds
+    a different node in every graph, so a projection of it would describe the
+    labelling. This keeps each dimension's marginal over nodes; what it gives
+    up is the joint, which node held which combination across dimensions.
+    """
+    return np.sort(mu, axis=1).reshape(len(mu), -1)
+
+
+def principal_axes(matrix):
+    """Column mean, singular values and right singular vectors, rows as samples."""
+    mean = matrix.mean(0)
+    _, singular, right = np.linalg.svd(matrix - mean, full_matrices=False)
+    return mean, singular, right
+
+
 def reconstruction(data, metrics, out):
     """Example matrices in log10, and error against the size of the true entry."""
-    T = data["T"][:N_EXAMPLES].numpy()
-    T_hat = data["T_hat"][:N_EXAMPLES].numpy()
-    n = T.shape[-1]
-    off = off_diagonal(n, torch.device("cpu")).numpy()
-
-    log_true = np.where(off, np.log10(np.clip(T, 1e-14, None)), np.nan)
-    log_pred = np.where(off, np.log10(np.clip(T_hat, 1e-14, None)), np.nan)
+    log_true = log_matrix(data["T"][:N_EXAMPLES].numpy())
+    log_pred = log_matrix(data["T_hat"][:N_EXAMPLES].numpy())
     difference = log_pred - log_true
 
     fig = plt.figure(figsize=(11.5, 3.1 * N_EXAMPLES + 3.4))
@@ -522,13 +550,8 @@ def latent_property(data, scaler, metrics, out):
         else "Graph means — too few graphs to rank by property"
     )
 
-    # Sorting each dimension's 20 node values independently is invariant to
-    # relabelling, which the raw flattened 160-vector is not: node slot i holds
-    # a different node in every graph, so a projection of it would describe the
-    # labelling. This keeps each dimension's marginal over nodes; what it gives
-    # up is the joint, which node held which combination across dimensions.
     n_sorted = n_nodes * d_latent
-    descriptor = np.sort(mu, axis=1).reshape(n_graphs, -1)
+    descriptor = sorted_descriptor(mu)
 
     def pca_panel(ax, matrix, name, title):
         """PC1 against PC2 of `matrix`, one point per graph; returns the loadings."""
@@ -536,9 +559,8 @@ def latent_property(data, scaler, metrics, out):
             ax.set_axis_off()
             ax.set_title(f"{title} — needs 3+ graphs")
             return None, None
-        centred = matrix - matrix.mean(0)
-        _, singular, right = np.linalg.svd(centred, full_matrices=False)
-        coordinates = centred @ right[:2].T
+        mean, singular, right = principal_axes(matrix)
+        coordinates = (matrix - mean) @ right[:2].T
         captured = (singular[:2] ** 2).sum() / max((singular ** 2).sum(), LOG_FLOOR)
         graph_scatter(ax, coordinates[:, 0], coordinates[:, 1], f"{name} PC1",
                       f"{name} PC2", f"{title} — top 2 hold {captured:.1%}")
@@ -644,6 +666,130 @@ def latent_property(data, scaler, metrics, out):
     plt.close(fig)
 
 
+def traversal(model, data, scaler, metrics, device, axis, out):
+    """Decode along one latent axis from real encodings: test graphs by steps.
+
+    Each row starts from one test graph's posterior mean — the same graphs
+    `reconstruction.png` shows — and moves it by t·σ along the axis, holding
+    everything else at the encoding, so the centre column is that graph's
+    reconstruction. σ is the spread of the axis coordinate over the test
+    graphs, a between-graph unit, and the sign is set so +t raises log y
+    across them; an eigenvector or a latent dimension has no sign of its own.
+
+    ``gbd`` is the highest-rate global dimension. ``PC1`` and ``PC2`` are the
+    sorted-160 components, the relabelling-invariant PCA of `latent_property`.
+    A step there moves each graph's sorted values, which are then put back on
+    the nodes they came from — rank r of dimension d returns to the node that
+    held rank r. Past a few σ values can cross ranks; the assignment is still
+    by the original ranks, which is the only inverse the sort has.
+    """
+    mu = data["mu"].numpy()
+    mu_global = data["mu_global"].numpy()
+    log_y = scaler.inverse(data["y"].numpy())
+    n_graphs, n_nodes, d_latent = mu.shape
+    rows = min(N_EXAMPLES, n_graphs)
+    n_steps = len(TRAVERSAL_STEPS)
+
+    def oriented(scores):
+        """Spread of the coordinate, and the sign that makes +t raise log y."""
+        r = np.corrcoef(scores, log_y)[0, 1] if scores.std() > 0 and log_y.std() > 0 else 0.0
+        return scores.std(), -1.0 if r < 0 else 1.0
+
+    if axis == "gbd":
+        d_global = mu_global.shape[1]
+        if not d_global:
+            return placeholder(metrics, out, "Global traversal — this run has no global latent")
+        global_kl = np.asarray(
+            metrics.get("global_kl_per_dim") or np.zeros(d_global), dtype=float
+        )
+        top = int(np.argmax(global_kl))
+        sigma, sign = oriented(mu_global[:, top])
+
+        def latents(graph):
+            z = np.repeat(mu[graph][None], n_steps, 0)
+            z_global = np.repeat(mu_global[graph][None], n_steps, 0)
+            z_global[:, top] += sign * sigma * TRAVERSAL_STEPS
+            return z, z_global
+
+        title = (f"Global dim {top} traversal: z_g = μ_g + t·σ — "
+                 f"{global_kl[top]:.2f} nats, σ = {sigma:.3f}")
+    else:
+        k = int(axis.removeprefix("PC")) - 1
+        n_sorted = n_nodes * d_latent
+        if n_graphs <= k + 1:
+            return placeholder(metrics, out, f"Sorted-{n_sorted} {axis} traversal — "
+                                             f"needs {k + 2}+ test graphs")
+        descriptor = sorted_descriptor(mu)
+        mean, singular, right = principal_axes(descriptor)
+        sigma, sign = oriented((descriptor - mean) @ right[k])
+        direction = sign * right[k]
+        share = singular[k] ** 2 / max((singular ** 2).sum(), LOG_FLOOR)
+        order = np.argsort(mu, axis=1)
+
+        def latents(graph):
+            moved = descriptor[graph] + np.outer(sigma * TRAVERSAL_STEPS, direction)
+            moved = moved.reshape(n_steps, n_nodes, d_latent)
+            z = np.empty_like(moved)
+            np.put_along_axis(z, np.broadcast_to(order[graph], moved.shape), moved, axis=1)
+            return z, np.repeat(mu_global[graph][None], n_steps, 0)
+
+        title = (f"Sorted-{n_sorted} {axis} traversal: z = μ + t·σ·v — "
+                 f"σ = {sigma:.3f}, {share:.1%} of latent variance")
+
+    decoded, predicted = [], []
+    with torch.no_grad():
+        for graph in range(rows):
+            z, z_global = (torch.as_tensor(a, dtype=torch.float32, device=device)
+                           for a in latents(graph))
+            T_hat, _ = model.decode(z, z_global)
+            decoded.append(log_matrix(T_hat.cpu().numpy()))
+            predicted.append(np.exp(scaler.inverse(model.predict(z, z_global).cpu().numpy())))
+    true = np.exp(log_y[:rows])
+    # The reconstruction figure's scale, so the centre column reads against it.
+    floor = float(np.nanpercentile(log_matrix(data["T"][:rows].numpy()), 2))
+
+    fig = plt.figure(figsize=(16, 2.45 * rows + 1.1))
+    grid = fig.add_gridspec(
+        rows, n_steps + 1, width_ratios=[1] * n_steps + [0.05],
+        left=0.03, right=0.95, top=1 - 0.95 / (2.45 * rows + 1.1),
+        bottom=0.3 / (2.45 * rows + 1.1), wspace=0.12, hspace=0.32,
+    )
+    centre = n_steps // 2
+    for row in range(rows):
+        for column, t in enumerate(TRAVERSAL_STEPS):
+            ax = fig.add_subplot(grid[row, column])
+            image = ax.imshow(decoded[row][column], cmap=SEQUENTIAL, vmin=floor, vmax=0.0,
+                              interpolation="nearest")
+            ax.set_xticks([])
+            ax.set_yticks([])
+            ax.grid(False)
+            value = f"ŷ {predicted[row][column]:.0f}"
+            if column == centre:
+                value += f"  ·  true {true[row]:.0f}"
+            header = "t = 0 (recon)" if t == 0 else f"t = {t:+d}σ"
+            ax.set_title(f"{header}\n{value}" if row == 0 else value, fontsize=9)
+            if column == 0:
+                ax.set_ylabel(f"test example {row}", fontsize=8)
+    colorbar = fig.colorbar(image, cax=fig.add_subplot(grid[:, n_steps]))
+    colorbar.set_label("log₁₀ T̂", fontsize=8, color=INK_SOFT)
+    colorbar.ax.tick_params(labelsize=7)
+
+    fig.suptitle(f"{title}   |   ŷ is the predicted decay exponent", fontsize=12,
+                 color=INK, x=0.005, ha="left")
+    footer(fig, metrics)
+    fig.savefig(out)
+    plt.close(fig)
+
+
+def placeholder(metrics, out, message):
+    """A figure that says why there is nothing to draw, so every run has the file."""
+    fig = plt.figure(figsize=(8, 2.4))
+    fig.text(0.5, 0.55, message, ha="center", va="center", fontsize=11, color=INK_SOFT)
+    footer(fig, metrics)
+    fig.savefig(out)
+    plt.close(fig)
+
+
 def visualize(run, num_threads=1):
     torch.set_num_threads(num_threads)
     style()
@@ -658,15 +804,25 @@ def visualize(run, num_threads=1):
     data = evaluate_module.collect(model, splits.test, model_cfg, device, cfg["batch_size"])
     history = read_history(run_dir)
 
+    figures = run_dir / paths.FIGURES
+    traversals = figures / paths.TRAVERSALS
+    traversals.mkdir(parents=True, exist_ok=True)
+    diagnostics = {
+        "training_curve": lambda p: training_curve(history, metrics, p),
+        "predictions": lambda p: predictions(data, scaler, metrics, p),
+        "reconstruction": lambda p: reconstruction(data, metrics, p),
+        "latent": lambda p: latent(metrics, p),
+        "latent_property": lambda p: latent_property(data, scaler, metrics, p),
+    }
+    jobs = [(figures / f"{name}.png", diagnostics[name]) for name in paths.DIAGNOSTIC_FIGURES]
+    jobs += [
+        (traversals / f"traversal_{axis}.png",
+         lambda p, a=axis: traversal(model, data, scaler, metrics, device, a, p))
+        for axis in paths.TRAVERSAL_AXES
+    ]
+
     written = []
-    for name, draw in (
-        ("training_curve.png", lambda p: training_curve(history, metrics, p)),
-        ("predictions.png", lambda p: predictions(data, scaler, metrics, p)),
-        ("reconstruction.png", lambda p: reconstruction(data, metrics, p)),
-        ("latent.png", lambda p: latent(metrics, p)),
-        ("latent_property.png", lambda p: latent_property(data, scaler, metrics, p)),
-    ):
-        path = run_dir / name
+    for path, draw in jobs:
         draw(path)
         written.append(path)
         print(f"  wrote {path}")
