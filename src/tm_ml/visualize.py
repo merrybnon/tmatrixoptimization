@@ -71,10 +71,11 @@ N_OPTIMIZATION_COLUMNS = 7
 OPTIMIZATION_LAMBDA = {"": 0.1, "_unreg": 0.0}
 # The sign s on log ŷ for each direction.
 OPTIMIZATION_SENSE = {"maximize": 1, "minimize": -1}
-# The partial-dependence surface: grid points per axis, padding past the test
-# graphs as a fraction of their range, and the (elevation, azimuth) it is seen from.
-PDP_GRID = 25
-PDP_PAD = 0.1
+# The partial-dependence surface: grid points per axis, the half-width of the
+# grid on each axis, centred on zero, and the (elevation, azimuth) it is seen from.
+PDP_GRID = 100
+PDP_GLOBAL_EXTENT = 4.0
+PDP_PC1_EXTENT = 7.0
 PDP_VIEW = (25, -60)
 # Below this rate a dimension is prior noise, not code.
 ACTIVE_DIM_MIN_KL = 0.01
@@ -742,12 +743,8 @@ def latent_property_3D(model, data, scaler, metrics, device, out):
         direction, score = -direction, -score
     order = np.argsort(mu, axis=1)
 
-    def axis_grid(values):
-        low, high = values.min(), values.max()
-        pad = PDP_PAD * (high - low) if high > low else 1.0
-        return np.linspace(low - pad, high + pad, PDP_GRID)
-
-    g_grid, p_grid = axis_grid(g), axis_grid(score)
+    g_grid = np.linspace(-PDP_GLOBAL_EXTENT, PDP_GLOBAL_EXTENT, PDP_GRID)
+    p_grid = np.linspace(-PDP_PC1_EXTENT, PDP_PC1_EXTENT, PDP_GRID)
 
     # One batch per PC1 value: every g on the grid for every test graph.
     pdp_log = np.empty((PDP_GRID, PDP_GRID))
@@ -786,9 +783,10 @@ def latent_property_3D(model, data, scaler, metrics, device, out):
         faces = SEQUENTIAL(norm(colour))
         faces[..., 3] = 0.72
         ax.plot_surface(G, P, surface, facecolors=faces, rstride=1, cstride=1,
-                        linewidth=0.2, edgecolor=SURFACE, shade=False)
+                        linewidth=0, antialiased=False, shade=False)
 
-        under = RegularGridInterpolator((p_grid, g_grid), surface)(np.c_[score, g])
+        under = RegularGridInterpolator((p_grid, g_grid), surface, bounds_error=False,
+                                        fill_value=None)(np.c_[score, g])
         for x, y, top_z, bottom_z in zip(g, score, true, under):
             ax.plot([x, x], [y, y], [bottom_z, top_z], color=INK_SOFT, lw=0.5, alpha=0.5)
         ax.scatter(g, score, true, c=decay, cmap=SEQUENTIAL, norm=norm, s=18,
