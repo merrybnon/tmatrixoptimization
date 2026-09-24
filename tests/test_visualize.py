@@ -12,7 +12,8 @@ FIGURES = tuple(f"figures/{name}.png" for name in (
 )) + tuple(f"figures/interpolation_and_traversals/traversal_{axis}.png"
            for axis in ("gbd", "PC1", "PC2")) + (
     "figures/interpolation_and_traversals/interpolation.png",) + tuple(
-    f"figures/interpolation_and_traversals/optimization_g{graph}{variant}.png"
+    f"figures/optimization/{sense}_g{graph}{variant}.png"
+    for sense in ("maximize", "minimize")
     for graph in (0, 1, 2) for variant in ("", "_unreg"))
 
 

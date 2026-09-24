@@ -20,10 +20,14 @@ and into ``figures/interpolation_and_traversals/``:
 - ``traversal_PC1.png``   the same along sorted-160 PC1
 - ``traversal_PC2.png``   and PC2
 - ``interpolation.png``   straight lines between test graphs, nodes matched first
-- ``optimization_g#.png`` BFGS ascent of the predicted exponent from test
+
+and into ``figures/optimization/``:
+
+- ``maximize_g#.png``     BFGS ascent of the predicted exponent from test
                           example #, penalized by distance from the start; decoded along the
                           path, then the path in the graph-level latent views
-- ``optimization_g#_unreg.png``  the same with no penalty
+- ``minimize_g#.png``     the same descending
+- ``*_g#_unreg.png``      either with no penalty
 
 Reads `history.csv` and `metrics.json`, and re-runs the model for the examples,
 so it needs `evaluate.py` to have gone first.
@@ -61,6 +65,8 @@ N_OPTIMIZATION_COLUMNS = 7
 # The weight λ on ‖x − x₀‖² for each optimization variant, the distance from
 # the start. `optimize.py` says why the penalty is not anchored at the origin.
 OPTIMIZATION_LAMBDA = {"": 1.0, "_unreg": 0.0}
+# The sign s on log ŷ for each direction.
+OPTIMIZATION_SENSE = {"maximize": 1, "minimize": -1}
 # Below this rate a dimension is prior noise, not code.
 ACTIVE_DIM_MIN_KL = 0.01
 LOG_FLOOR = 1e-12
@@ -917,7 +923,8 @@ def path_columns(log_y_hat, n_columns):
 
     Even in log ŷ rather than in iteration because BFGS gains most of its ground
     in a few steps; evenly spaced iterations would be mostly the same matrix.
-    The path need not be monotone in ŷ once the penalty is on, so this is
+    It serves a descent as well, the targets then running downhill. The
+    path need not be monotone in ŷ once the penalty is on, so this is
     nearest-value, not interpolation. Repeats collapse, and the columns they
     free go to the unused iterates, evenly in iteration.
     """
@@ -932,13 +939,15 @@ def path_columns(log_y_hat, n_columns):
 
 
 def decay_text(log_y):
-    """A decay exponent that may have run off to 10^1000 without becoming inf."""
-    if log_y < np.log(1e6):
+    """A decay exponent that may have run off to 10^±1000 without becoming inf or 0."""
+    if np.log(1.0) <= log_y < np.log(1e6):
         return f"{np.exp(log_y):.0f}"
+    if np.log(1e-3) <= log_y < np.log(1.0):
+        return f"{np.exp(log_y):.3g}"
     return f"10^{log_y / np.log(10):.1f}"
 
 
-def optimization(model, data, scaler, metrics, device, graph, lam, out):
+def optimization(model, data, scaler, metrics, device, graph, lam, sense, out):
     """BFGS from one test graph: its decoded path, then the path in latent space.
 
     The top row is decoded matrices at selected iterates, drawn like the
@@ -947,7 +956,8 @@ def optimization(model, data, scaler, metrics, device, graph, lam, out):
     square, the end a star, arrows in iteration order. The background is
     coloured by the true exponent and the path by the predicted one, on one
     scale fitted to the data, so a path that leaves the data's range clips at
-    the top colour and its final value is written on the panel instead.
+    the top colour, or the bottom one when minimizing, and its final value is
+    written on the panel instead. ``sense`` is +1 to ascend, −1 to descend.
     """
     mu = data["mu"].numpy()
     mu_global = data["mu_global"].numpy()
@@ -956,7 +966,7 @@ def optimization(model, data, scaler, metrics, device, graph, lam, out):
         return placeholder(metrics, out, f"Optimization — no test example {graph}")
     decay = np.exp(log_y)
 
-    path = optimize.ascend(model, scaler, mu[graph], mu_global[graph], lam)
+    path = optimize.search(model, scaler, mu[graph], mu_global[graph], lam, sense)
     columns = path_columns(path.log_y_hat, N_OPTIMIZATION_COLUMNS)
     decoded, _ = decode_batch(model, device, scaler, path.z[columns], path.z_global[columns])
     views = graph_views(mu, mu_global, log_y, metrics)
@@ -991,7 +1001,8 @@ def optimization(model, data, scaler, metrics, device, graph, lam, out):
                                  wspace=0.32, hspace=0.42)
     norm = plt.Normalize(decay.min(), decay.max())
     # Colour only; the text on each panel carries the real value past the clip.
-    path_colour = np.exp(np.minimum(path.log_y_hat, np.log(decay.max()) + 1.0))
+    path_colour = np.exp(np.clip(path.log_y_hat, np.log(decay.min()) - 1.0,
+                                 np.log(decay.max()) + 1.0))
     for index, (title, xlabel, ylabel, project) in enumerate(views):
         ax = fig.add_subplot(lower[index // 4, index % 4])
         background = project(mu, mu_global)
@@ -1036,14 +1047,15 @@ def optimization(model, data, scaler, metrics, device, graph, lam, out):
     # A mappable of its own, so the bar shows the colours at full strength
     # rather than at the background's transparency.
     bar = fig.colorbar(plt.cm.ScalarMappable(norm=norm, cmap=SEQUENTIAL),
-                       cax=fig.add_subplot(lower[:, 4]), extend="max")
+                       cax=fig.add_subplot(lower[:, 4]), extend="max" if sense > 0 else "min")
     bar.set_label("decay exponent — true for test graphs, predicted on the path",
                   fontsize=8, color=INK_SOFT)
     bar.ax.tick_params(labelsize=7)
 
-    objective = ("f(x) = −log ŷ(x), unregularized" if lam == 0
-                 else f"f(x) = −log ŷ(x) + (λ/2)·‖x − x₀‖², λ = {lam:g}")
-    fig.suptitle(f"BFGS latent ascent from test example {graph}: {objective}",
+    sign, direction = ("−", "ascent") if sense > 0 else ("+", "descent")
+    objective = (f"f(x) = {sign}log ŷ(x), unregularized" if lam == 0
+                 else f"f(x) = {sign}log ŷ(x) + (λ/2)·‖x − x₀‖², λ = {lam:g}")
+    fig.suptitle(f"BFGS latent {direction} from test example {graph}: {objective}",
                  fontsize=12, color=INK, x=0.005, ha="left")
     footer(fig, metrics)
     fig.savefig(out)
@@ -1122,7 +1134,9 @@ def visualize(run, num_threads=1):
 
     figures = run_dir / paths.FIGURES
     traversals = figures / paths.TRAVERSALS
+    optimizations = figures / paths.OPTIMIZATION
     traversals.mkdir(parents=True, exist_ok=True)
+    optimizations.mkdir(exist_ok=True)
     diagnostics = {
         "training_curve": lambda p: training_curve(history, metrics, p),
         "predictions": lambda p: predictions(data, scaler, metrics, p),
@@ -1142,9 +1156,10 @@ def visualize(run, num_threads=1):
     jobs += [(traversals / f"{name}.png", interpolations[name])
              for name in paths.INTERPOLATIONS]
     jobs += [
-        (traversals / f"optimization_g{graph}{variant}.png",
-         lambda p, g=graph, lam=OPTIMIZATION_LAMBDA[variant]:
-             optimization(model, data, scaler, metrics, device, g, lam, p))
+        (optimizations / f"{sense}_g{graph}{variant}.png",
+         lambda p, g=graph, lam=OPTIMIZATION_LAMBDA[variant], s=OPTIMIZATION_SENSE[sense]:
+             optimization(model, data, scaler, metrics, device, g, lam, s, p))
+        for sense in paths.OPTIMIZATION_SENSES
         for graph in paths.OPTIMIZATION_GRAPHS for variant in paths.OPTIMIZATION_VARIANTS
     ]
 

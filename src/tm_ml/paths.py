@@ -71,18 +71,22 @@ METRICS = "metrics.json"
 STORED_CONFIG = "config.json"
 RESOLVED_CONFIG = "config.yaml"
 TRAIN_META = "train_meta.json"
-# Figures sit in their own folder inside the run, traversals one level deeper.
+# Figures sit in their own folder inside the run, traversals and optimization
+# paths each one level deeper.
 FIGURES = "figures"
 TRAVERSALS = "interpolation_and_traversals"
+OPTIMIZATION = "optimization"
 DIAGNOSTIC_FIGURES = ("training_curve", "predictions", "reconstruction", "latent",
                       "latent_property")
 TRAVERSAL_AXES = ("gbd", "PC1", "PC2")
 INTERPOLATIONS = ("interpolation",)
-# BFGS latent optimization from each of these test examples, once regularized
-# and once not; the suffix names the variant.
+# BFGS latent optimization from each of these test examples, pushing the
+# predicted exponent up and down, each once regularized and once not; the
+# prefix names the sense and the suffix the variant.
+OPTIMIZATION_SENSES = ("maximize", "minimize")
 OPTIMIZATION_GRAPHS = (0, 1, 2)
 OPTIMIZATION_VARIANTS = ("", "_unreg")
-OPTIMIZATIONS = tuple(f"optimization_g{graph}{variant}"
+OPTIMIZATIONS = tuple(f"{sense}_g{graph}{variant}" for sense in OPTIMIZATION_SENSES
                       for graph in OPTIMIZATION_GRAPHS for variant in OPTIMIZATION_VARIANTS)
 
 # Field to name token. `model` and `drop` are excluded because they are named
