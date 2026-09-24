@@ -11,7 +11,7 @@ from scipy.optimize import check_grad
 
 from tm_ml.datasets import TargetScaler
 from tm_ml.models import TMVAE, TMVAEConfig, off_diagonal
-from tm_ml.optimize import ascend, float64_copy, objective
+from tm_ml.optimize import float64_copy, objective, search
 
 N = 6
 SCALER = TargetScaler(mean=6.0, std=0.7)
@@ -42,7 +42,7 @@ def test_gradient_matches_finite_differences(encoded, lam):
 @pytest.mark.parametrize("lam", [0.0, 0.5])
 def test_path_starts_at_the_encoding_and_never_goes_uphill(encoded, lam):
     model, mu, mu_global = encoded
-    path = ascend(model, SCALER, mu, mu_global, lam, maxiter=30)
+    path = search(model, SCALER, mu, mu_global, lam, maxiter=30)
     np.testing.assert_array_equal(path.z[0], mu)
     np.testing.assert_array_equal(path.z_global[0], mu_global)
     assert len(path.z) == path.nit + 1
@@ -50,11 +50,30 @@ def test_path_starts_at_the_encoding_and_never_goes_uphill(encoded, lam):
     assert path.log_y_hat[-1] > path.log_y_hat[0]
 
 
+@pytest.mark.parametrize("lam", [0.0, 0.5])
+def test_minimizing_drives_the_prediction_down(encoded, lam):
+    model, mu, mu_global = encoded
+    path = search(model, SCALER, mu, mu_global, lam, sense=-1, maxiter=30)
+    assert np.all(np.diff(path.f) <= 1e-12)
+    assert path.log_y_hat[-1] < path.log_y_hat[0]
+
+
+def test_the_sense_flips_only_the_predictor_term(encoded):
+    model, mu, mu_global = encoded
+    x0 = np.concatenate([mu.ravel(), mu_global])
+    x = x0 + 0.3
+    model64 = float64_copy(model)
+    up = objective(model64, SCALER, *mu.shape, 0.5, x0, sense=1)(x)[0]
+    down = objective(model64, SCALER, *mu.shape, 0.5, x0, sense=-1)(x)[0]
+    penalty = 0.25 * ((x - x0) ** 2).sum()
+    np.testing.assert_allclose(up - penalty, -(down - penalty), rtol=1e-12)
+
+
 def test_the_penalty_keeps_the_latent_closer_to_the_start(encoded):
     model, mu, mu_global = encoded
 
     def distance(lam):
-        path = ascend(model, SCALER, mu, mu_global, lam, maxiter=30)
+        path = search(model, SCALER, mu, mu_global, lam, maxiter=30)
         return np.linalg.norm(np.r_[path.z[-1].ravel() - mu.ravel(),
                                     path.z_global[-1] - mu_global])
 
@@ -65,8 +84,8 @@ def test_bfgs_commutes_with_relabelling(encoded):
     """B0 = I and every s, y permute with the start, so B picks up P B Pᵀ."""
     model, mu, mu_global = encoded
     order = np.random.default_rng(1).permutation(N)
-    path = ascend(model, SCALER, mu, mu_global, 0.1, maxiter=10)
-    relabelled = ascend(model, SCALER, mu[order], mu_global, 0.1, maxiter=10)
+    path = search(model, SCALER, mu, mu_global, 0.1, maxiter=10)
+    relabelled = search(model, SCALER, mu[order], mu_global, 0.1, maxiter=10)
 
     assert relabelled.nit == path.nit
     np.testing.assert_allclose(relabelled.z, path.z[:, order], atol=1e-8)
