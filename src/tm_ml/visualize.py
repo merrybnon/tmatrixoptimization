@@ -64,7 +64,7 @@ INTERPOLATION_STEPS = 7
 N_OPTIMIZATION_COLUMNS = 7
 # The weight λ on ‖x − x₀‖² for each optimization variant, the distance from
 # the start. `optimize.py` says why the penalty is not anchored at the origin.
-OPTIMIZATION_LAMBDA = {"": 1.0, "_unreg": 0.0}
+OPTIMIZATION_LAMBDA = {"": 0.1, "_unreg": 0.0}
 # The sign s on log ŷ for each direction.
 OPTIMIZATION_SENSE = {"maximize": 1, "minimize": -1}
 # Below this rate a dimension is prior noise, not code.
