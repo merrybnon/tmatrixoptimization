@@ -222,6 +222,19 @@ def sorted_descriptor(mu):
     return np.sort(mu, axis=1).reshape(len(mu), -1)
 
 
+def unsort(descriptor, order):
+    """Sorted descriptors ``(k, n_nodes * d_latent)`` back onto nodes as ``(k, n_nodes, d_latent)``.
+
+    ``order`` is ``np.argsort(mu, axis=1)`` of the latents the descriptors came
+    from, so rank r of dimension d returns to the node that held rank r — the
+    only inverse the sort has once a move has let values cross ranks.
+    """
+    moved = descriptor.reshape(order.shape)
+    z = np.empty_like(moved)
+    np.put_along_axis(z, order, moved, axis=1)
+    return z
+
+
 def principal_axes(matrix):
     """Column mean, singular values and right singular vectors, rows as samples."""
     mean = matrix.mean(0)
@@ -737,9 +750,7 @@ def traversal(model, data, scaler, metrics, device, axis, out):
 
         def latents(graph):
             moved = descriptor[graph] + np.outer(sigma * TRAVERSAL_STEPS, direction)
-            moved = moved.reshape(n_steps, n_nodes, d_latent)
-            z = np.empty_like(moved)
-            np.put_along_axis(z, np.broadcast_to(order[graph], moved.shape), moved, axis=1)
+            z = unsort(moved, np.broadcast_to(order[graph], (n_steps, n_nodes, d_latent)))
             return z, np.repeat(mu_global[graph][None], n_steps, 0)
 
         title = (f"Sorted-{n_sorted} {axis} traversal: z = μ + t·σ·v — "
