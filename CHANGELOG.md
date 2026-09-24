@@ -21,6 +21,7 @@ All notable changes to this project will be documented in this file. The format 
 - `tests/test_optimize.py`: the gradient against finite differences, a path that starts at the encoding and never goes uphill, the penalty keeping the latent near the start, and BFGS commuting with node relabelling.
 - `src/tm_ml/data_figures.py`: figures describing a processed drop, written beside its arrays in `data/processed/<drop>/` and run by hand outside the workflow. `target_statistics.png` is a histogram and survival curve of the targets on linear and log axes, with the mean, median, maximum and minimum over the drop's matrices. `example_matrices.png` shows the four highest-target, four nearest-median and four lowest-target matrices in log₁₀. `uniformness_vs_target.png` and `_log.png` plot four per-matrix uniformness measures against the target on a linear and a log target axis: std of entries, mean and min normalized row entropy, and std of log₁₀ entries.
 - `src/tm_ml/architecture.py`, `workflow/Snakefile`, `pixi.toml`: a per-run architecture diagram, `figures/architecture.mmd` (Mermaid source) and `figures/architecture.svg`, drawn from the checkpoint so it shows what was trained: layer counts, widths, heads, dropout, pooling mode, whether the graph-level latent exists, the loss weights, and each block's parameter count summed from the state dict. Laid out left to right, encoder → latent → decoder → T̂, with the predictor branching off the latent below the decoder. Rendered by mermaid-cli 11.17.0 through npx, which fetches it and a headless Chrome on first use; `--no-render` writes the source alone. A new `architecture` rule reads only the checkpoint on the cpu, so it holds no gpu token. `tests/test_architecture.py` covers both latent variants.
+- `src/tm_ml/optimize.py`, `visualize.py`: minimizing the predicted exponent, a `sense` of ±1 on log ŷ; `minimize_g#[_unreg].png` beside the maximize figures.
 
 ### Removed
 
@@ -34,6 +35,7 @@ All notable changes to this project will be documented in this file. The format 
 
 ### Changed
 
+- `src/tm_ml/visualize.py`, `paths.py`: optimization figures moved to `figures/optimization/` as `maximize_g#` and `minimize_g#`; regularized λ lowered from 1 to 0.1.
 - `docs/notes/architecture.md`: the encoder's attention is described as it is implemented, scaled dot-product attention plus an additive per-head Graphormer edge bias, in the diagram's update line and the sources table, in place of the GATv2 form the note had prescribed.
 - `src/tm_ml/style.py`, `visualize.py`: the palette and `style()` moved out of `visualize.py` into a torch-free module, so figures that read only `data/processed/` run in the default env. `visualize.py` draws exactly as before.
 - `src/tm_ml/visualize.py`, `paths.py`, `workflow/Snakefile`: figures move from the run directory root into `results/<run>/figures/`, and figure names are defined once in `paths.py`. Existing runs were migrated by moving their PNGs; the `global_latent` runs were re-rendered.

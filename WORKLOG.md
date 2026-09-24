@@ -497,3 +497,7 @@ Re-evaluation is deterministic, as expected: across the 89 ledger rows no metric
 - Draw diagrams for the 24 runs outside the current sweeps, if they are still of interest, with `pixi run -e ml architecture --run <run>`.
 - `architecture.md`'s sources table still credits Gilmer and Simonovsky & Komodakis for edge-conditioned messages, which the code does not have: edges enter only through the attention bias.
 - The SVG render depends on npx fetching mermaid-cli and a headless Chrome, so a fresh machine needs network access the first time.
+
+## 2026-09-24 — minimizing the decay exponent
+
+Flipped the sign on log ŷ and lowered the regularized λ to 0.1, both directions, dg1 seed-1 run. Converged ŷ per test graph (true in brackets), minimize and maximize: g0 (82) 23 and 3.1e5, g1 (224) 36 and 416, g2 (545) 71 and 2.7e5. The descents leave the test cloud, and the 1e5 ascents are far past any test graph, so read both as partly extrapolation. Unregularized, the minimize paths run away like the ascents; g2 reaches ‖x‖ ≈ 1e153, where the decoder returns NaN.
