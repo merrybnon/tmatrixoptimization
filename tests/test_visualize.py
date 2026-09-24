@@ -10,7 +10,7 @@ from tm_ml.models import TMVAEConfig
 FIGURES = tuple(f"figures/{name}.png" for name in (
     "training_curve", "predictions", "reconstruction", "latent", "latent_property",
     "latent_property_3D",
-)) + tuple(f"figures/interpolation_and_traversals/traversal_{axis}.png"
+)) + ("figures/latent_property_3D.html",) + tuple(f"figures/interpolation_and_traversals/traversal_{axis}.png"
            for axis in ("gbd", "PC1", "PC2")) + (
     "figures/interpolation_and_traversals/interpolation.png",) + tuple(
     f"figures/optimization/{sense}_g{graph}{variant}.png"
@@ -32,6 +32,12 @@ def test_visualize_writes_every_figure(wired, tiny_config, d_global, d_latent):
     assert [p.relative_to(run_dir).as_posix() for p in written] == list(FIGURES)
     for path in written:
         assert path.exists()
+        if path.suffix == ".html":
+            # Over a megabyte is plotly.js embedded, so the page opens offline.
+            text = path.read_text()
+            assert "<html" in text and "plotly" in text
+            assert path.stat().st_size > 1_000_000
+            continue
         # A PNG that renders to nothing still writes a file; the header and a
         # plausible size are what say something was actually drawn.
         assert path.read_bytes()[:8] == b"\x89PNG\r\n\x1a\n"

@@ -78,6 +78,8 @@ TRAVERSALS = "interpolation_and_traversals"
 OPTIMIZATION = "optimization"
 DIAGNOSTIC_FIGURES = ("training_curve", "predictions", "reconstruction", "latent",
                       "latent_property", "latent_property_3D")
+# Also written as a plotly page beside the PNG, `<name>.html`.
+INTERACTIVE_FIGURES = ("latent_property_3D",)
 TRAVERSAL_AXES = ("gbd", "PC1", "PC2")
 INTERPOLATIONS = ("interpolation",)
 # BFGS latent optimization from each of these test examples, pushing the

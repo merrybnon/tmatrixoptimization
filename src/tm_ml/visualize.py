@@ -16,6 +16,8 @@ so a figure is self-describing wherever it ends up:
 - ``latent_property_3D.png`` the predicted exponent as a partial-dependence
                           surface over the global dim and sorted-160 PC1,
                           as log ŷ and as ŷ, with the test graphs standing on it
+- ``latent_property_3D.html`` the same as a page to turn and hover, plotly.js
+                          embedded so it opens offline
 
 and into ``figures/interpolation_and_traversals/``:
 
@@ -38,18 +40,21 @@ so it needs `evaluate.py` to have gone first.
 
 import argparse
 import csv
+import functools
 import json
 import textwrap
 from datetime import datetime, timezone
 
 import matplotlib
 import numpy as np
+import plotly.graph_objects as go
 import torch
+from plotly.subplots import make_subplots
 from scipy.optimize import linear_sum_assignment
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt  # noqa: E402
-from matplotlib.colors import LogNorm, TwoSlopeNorm  # noqa: E402
+from matplotlib.colors import LogNorm, TwoSlopeNorm, to_hex  # noqa: E402
 from scipy.interpolate import RegularGridInterpolator  # noqa: E402
 
 from tm_ml import evaluate as evaluate_module
@@ -57,7 +62,7 @@ from tm_ml import optimize, paths
 from tm_ml.ingest import git_commit
 from tm_ml.models import TMVAEConfig, off_diagonal
 from tm_ml.style import (
-    DIVERGING, INK, INK_SOFT, SEQUENTIAL, SURFACE, THIRD, TRAIN, VAL, style,
+    DIVERGING, GRID, INK, INK_SOFT, SEQUENTIAL, SURFACE, THIRD, TRAIN, VAL, style,
 )
 
 N_EXAMPLES = 3
@@ -82,17 +87,21 @@ ACTIVE_DIM_MIN_KL = 0.01
 LOG_FLOOR = 1e-12
 
 
-def footer(fig, metrics):
-    """Provenance, so a figure that escapes the run directory still says what it is."""
-    fig.text(
-        0.005, 0.004,
+def provenance(metrics):
+    """Run, checkpoint, drop, split seed, git hash and timestamp, as one line."""
+    return (
         f"{metrics['run']}  |  epoch {metrics['best_epoch']} "
         f"({metrics['best_metric']} {metrics['best_score']:.4f})  |  "
         f"drop {metrics['drop']}, split seed {metrics['split_seed']}, "
         f"n_test {metrics['n_test']}  |  git {str(metrics['git_commit'])[:8]}  |  "
-        f"drawn {datetime.now(timezone.utc).isoformat(timespec='seconds')}",
-        fontsize=6, color=INK_SOFT, ha="left", va="bottom",
+        f"drawn {datetime.now(timezone.utc).isoformat(timespec='seconds')}"
     )
+
+
+def footer(fig, metrics):
+    """Provenance, so a figure that escapes the run directory still says what it is."""
+    fig.text(0.005, 0.004, provenance(metrics), fontsize=6, color=INK_SOFT,
+             ha="left", va="bottom")
 
 
 def read_history(run_dir):
@@ -698,7 +707,7 @@ def latent_property(data, scaler, metrics, out):
     plt.close(fig)
 
 
-def latent_property_3D(model, data, scaler, metrics, device, out):
+def pdp_surface(model, data, scaler, metrics, device):
     """The predicted exponent as a surface over the global dim and sorted-160 PC1.
 
     ŷ depends on every latent coordinate, so the surface is a partial
@@ -712,10 +721,10 @@ def latent_property_3D(model, data, scaler, metrics, device, out):
     component and put the values back on the nodes they came from, so every
     other component and the within-graph spread are untouched.
 
-    Two panels, each averaging what it plots: the mean of log ŷ on the left,
-    the mean of ŷ on the right, which is not exp of the left. The test graphs
-    stand at their own coordinates and true value, each with a stem to the
-    surface; the stem is how far the averaged-out coordinates move that graph.
+    Two panels, each averaging what it plots: the mean of log ŷ, and the mean
+    of ŷ, which is not exp of the first. Computed once and drawn twice, as
+    `latent_property_3D`'s PNG and `latent_property_3D_html`'s page. Returns
+    ``{"message": ...}`` instead when there is nothing to draw.
     """
     mu = data["mu"].numpy()
     mu_global = data["mu_global"].numpy()
@@ -724,9 +733,9 @@ def latent_property_3D(model, data, scaler, metrics, device, out):
     d_global = mu_global.shape[1]
     n_sorted = n_nodes * d_latent
     if not d_global:
-        return placeholder(metrics, out, "Latent property 3D — this run has no global latent")
+        return {"message": "Latent property 3D — this run has no global latent"}
     if n_graphs <= 2:
-        return placeholder(metrics, out, "Latent property 3D — needs 3+ test graphs")
+        return {"message": "Latent property 3D — needs 3+ test graphs"}
     decay = np.exp(log_y)
 
     top = latent_axes(mu, log_y, metrics, d_global)["top_global"]
@@ -763,46 +772,64 @@ def latent_property_3D(model, data, scaler, metrics, device, out):
             pdp_log[i] = log_y_hat.mean(1)
             pdp_raw[i] = np.exp(log_y_hat).mean(1)
 
-    G, P = np.meshgrid(g_grid, p_grid)
-    # Colour is the decay exponent on both panels, on a log scale so the two
-    # read alike and the skewed upper end does not take the whole ramp.
-    norm = LogNorm(min(decay.min(), np.exp(pdp_log).min(), pdp_raw.min()),
-                   max(decay.max(), np.exp(pdp_log).max(), pdp_raw.max()))
-
-    fig = plt.figure(figsize=(16, 7.6))
-    grid = fig.add_gridspec(1, 3, width_ratios=[1, 1, 0.03], left=0.01, right=0.95,
-                            top=0.88, bottom=0.1, wspace=0.08)
-    panels = (
+    panels = []
+    for surface, colour, true, zlabel, title in (
         (pdp_log, np.exp(pdp_log), log_y, "log ŷ",
          f"Mean of log ŷ over the {n_graphs} test graphs"),
         (pdp_raw, pdp_raw, decay, "ŷ",
          f"Mean of ŷ over the {n_graphs} test graphs — not exp of the left"),
-    )
-    for column, (surface, colour, true, zlabel, title) in enumerate(panels):
-        ax = fig.add_subplot(grid[0, column], projection="3d")
-        faces = SEQUENTIAL(norm(colour))
-        faces[..., 3] = 0.72
-        ax.plot_surface(G, P, surface, facecolors=faces, rstride=1, cstride=1,
-                        linewidth=0, antialiased=False, shade=False)
-
+    ):
         under = RegularGridInterpolator((p_grid, g_grid), surface, bounds_error=False,
                                         fill_value=None)(np.c_[score, g])
-        for x, y, top_z, bottom_z in zip(g, score, true, under):
-            ax.plot([x, x], [y, y], [bottom_z, top_z], color=INK_SOFT, lw=0.5, alpha=0.5)
-        ax.scatter(g, score, true, c=decay, cmap=SEQUENTIAL, norm=norm, s=18,
-                   edgecolor=INK, linewidth=0.3, depthshade=False)
-
         # Over the test graphs: how far they stand from the surface, against
         # how far they spread about their own mean.
-        residual = np.sqrt(np.mean((true - under) ** 2))
-        ax.text2D(0.02, 0.97,
-                  f"test graphs to surface, RMS {residual:.3g}\n"
-                  f"test graphs about their mean, std {true.std():.3g}",
-                  transform=ax.transAxes, va="top", fontsize=8, color=INK_SOFT)
-        ax.set_xlabel(f"global dim {top} — {global_kl[top]:.2f} nats")
-        ax.set_ylabel(f"sorted-{n_sorted} PC1")
-        ax.set_zlabel(zlabel)
-        ax.set_title(title)
+        note = (f"test graphs to surface, RMS {np.sqrt(np.mean((true - under) ** 2)):.3g}\n"
+                f"test graphs about their mean, std {true.std():.3g}")
+        panels.append({"surface": surface, "colour": colour, "true": true, "under": under,
+                       "zlabel": zlabel, "title": title, "note": note})
+
+    # Colour is the decay exponent on both panels, on a log scale so the two
+    # read alike and the skewed upper end does not take the whole ramp.
+    return {
+        "g": g, "score": score, "decay": decay, "g_grid": g_grid, "p_grid": p_grid,
+        "panels": panels,
+        "low": min(decay.min(), np.exp(pdp_log).min(), pdp_raw.min()),
+        "high": max(decay.max(), np.exp(pdp_log).max(), pdp_raw.max()),
+        "xlabel": f"global dim {top} — {global_kl[top]:.2f} nats",
+        "ylabel": f"sorted-{n_sorted} PC1",
+        "title": (f"Partial dependence of the predicted exponent on global dim {top} "
+                  f"and sorted-{n_sorted} PC1"),
+    }
+
+
+def latent_property_3D(pdp, metrics, out):
+    """`pdp_surface` as a still: two 3D panels, test graphs stemmed to the surface."""
+    if "message" in pdp:
+        return placeholder(metrics, out, pdp["message"])
+    g, score, decay = pdp["g"], pdp["score"], pdp["decay"]
+    G, P = np.meshgrid(pdp["g_grid"], pdp["p_grid"])
+    norm = LogNorm(pdp["low"], pdp["high"])
+
+    fig = plt.figure(figsize=(16, 7.6))
+    grid = fig.add_gridspec(1, 3, width_ratios=[1, 1, 0.03], left=0.01, right=0.95,
+                            top=0.88, bottom=0.1, wspace=0.08)
+    for column, panel in enumerate(pdp["panels"]):
+        ax = fig.add_subplot(grid[0, column], projection="3d")
+        faces = SEQUENTIAL(norm(panel["colour"]))
+        faces[..., 3] = 0.72
+        ax.plot_surface(G, P, panel["surface"], facecolors=faces, rstride=1, cstride=1,
+                        linewidth=0, antialiased=False, shade=False)
+        for x, y, top_z, bottom_z in zip(g, score, panel["true"], panel["under"]):
+            ax.plot([x, x], [y, y], [bottom_z, top_z], color=INK_SOFT, lw=0.5, alpha=0.5)
+        ax.scatter(g, score, panel["true"], c=decay, cmap=SEQUENTIAL, norm=norm, s=18,
+                   edgecolor=INK, linewidth=0.3, depthshade=False)
+
+        ax.text2D(0.02, 0.97, panel["note"], transform=ax.transAxes, va="top",
+                  fontsize=8, color=INK_SOFT)
+        ax.set_xlabel(pdp["xlabel"])
+        ax.set_ylabel(pdp["ylabel"])
+        ax.set_zlabel(panel["zlabel"])
+        ax.set_title(panel["title"])
         ax.view_init(elev=PDP_VIEW[0], azim=PDP_VIEW[1])
         for pane in (ax.xaxis, ax.yaxis, ax.zaxis):
             pane.set_pane_color(SURFACE)
@@ -813,11 +840,94 @@ def latent_property_3D(model, data, scaler, metrics, device, out):
     bar.set_label("decay exponent — partial dependence on the surface, true for test graphs",
                   fontsize=8, color=INK_SOFT)
     bar.ax.tick_params(labelsize=7)
-    fig.suptitle(f"Partial dependence of the predicted exponent on global dim {top} "
-                 f"and sorted-{n_sorted} PC1", fontsize=12, color=INK, x=0.005, ha="left")
+    fig.suptitle(pdp["title"], fontsize=12, color=INK, x=0.005, ha="left")
     footer(fig, metrics)
     fig.savefig(out)
     plt.close(fig)
+
+
+def latent_property_3D_html(pdp, metrics, out):
+    """`pdp_surface` as a page to turn and hover, plotly.js embedded so it opens offline.
+
+    Colour carries log₁₀ of the exponent on one shared axis, the LogNorm of
+    the PNG, with the bar labelled in the exponent itself. Hovering a test
+    graph gives its index, coordinates, true value and the surface under it.
+    """
+    if "message" in pdp:
+        fig = go.Figure()
+        fig.add_annotation(text=pdp["message"], x=0.5, y=0.5, xref="paper", yref="paper",
+                           showarrow=False, font=dict(size=16, color=INK_SOFT))
+        fig.update_xaxes(visible=False)
+        fig.update_yaxes(visible=False)
+        return write_html(fig, metrics, out)
+    g, score, decay = pdp["g"], pdp["score"], pdp["decay"]
+    low, high = np.log10(pdp["low"]), np.log10(pdp["high"])
+    ticks = [v for v in (20, 50, 100, 200, 500, 1000, 2000, 5000, 10000)
+             if low <= np.log10(v) <= high]
+
+    fig = make_subplots(
+        1, 2, specs=[[{"type": "scene"}] * 2], horizontal_spacing=0.02,
+        subplot_titles=[f"{p['title']}<br><span style='font-size:11px;color:{INK_SOFT}'>"
+                        f"{p['note'].replace(chr(10), '  ·  ')}</span>"
+                        for p in pdp["panels"]],
+    )
+    elevation, azimuth = np.radians(PDP_VIEW)
+    eye = 2.1 * np.array([np.cos(elevation) * np.cos(azimuth),
+                          np.cos(elevation) * np.sin(azimuth), np.sin(elevation)])
+    customdata = np.c_[np.arange(len(g)), decay]
+    for column, panel in enumerate(pdp["panels"], start=1):
+        value = "log ŷ %{z:.3f}" if column == 1 else "ŷ %{z:.4g}"
+        fig.add_trace(go.Surface(
+            x=pdp["g_grid"], y=pdp["p_grid"], z=panel["surface"],
+            surfacecolor=np.log10(panel["colour"]), coloraxis="coloraxis", opacity=0.8,
+            hovertemplate=f"global %{{x:.2f}}<br>PC1 %{{y:.2f}}<br>{value}<extra>surface</extra>",
+        ), 1, column)
+        stems = np.full((len(g), 3, 3), np.nan)
+        stems[:, :2] = np.stack([np.c_[g, score, panel["under"]],
+                                 np.c_[g, score, panel["true"]]], 1)
+        stems = stems.reshape(-1, 3)
+        fig.add_trace(go.Scatter3d(
+            x=stems[:, 0], y=stems[:, 1], z=stems[:, 2], mode="lines", hoverinfo="skip",
+            line=dict(color=INK_SOFT, width=1.5), opacity=0.5, showlegend=False,
+        ), 1, column)
+        true_text = "log y %{z:.3f}" if column == 1 else "y %{z:.4g}"
+        fig.add_trace(go.Scatter3d(
+            x=g, y=score, z=panel["true"], mode="markers", showlegend=False,
+            customdata=np.c_[customdata, panel["under"]],
+            marker=dict(size=4, color=np.log10(decay), coloraxis="coloraxis",
+                        line=dict(color=INK, width=0.5)),
+            hovertemplate=("test graph %{customdata[0]:.0f}<br>global %{x:.3f}<br>"
+                           f"PC1 %{{y:.3f}}<br>true {true_text}<br>"
+                           "surface under it %{customdata[2]:.4g}<extra></extra>"),
+        ), 1, column)
+        fig.update_scenes(
+            dict(xaxis_title=pdp["xlabel"], yaxis_title=pdp["ylabel"],
+                 zaxis_title=panel["zlabel"], aspectratio=dict(x=1, y=1, z=0.75),
+                 camera=dict(eye=dict(zip("xyz", eye))),
+                 **{f"{a}axis": dict(backgroundcolor=SURFACE, gridcolor=GRID) for a in "xyz"}),
+            row=1, col=column,
+        )
+    fig.update_layout(
+        title=dict(text=pdp["title"], x=0.005, font=dict(size=18, color=INK)),
+        coloraxis=dict(
+            colorscale=[[t, to_hex(SEQUENTIAL(t))] for t in np.linspace(0, 1, 11)],
+            cmin=low, cmax=high,
+            colorbar=dict(title=dict(text="decay exponent", side="right"),
+                          tickvals=np.log10(ticks), ticktext=[str(v) for v in ticks]),
+        ),
+        height=800, margin=dict(l=10, r=10, t=110, b=40),
+    )
+    write_html(fig, metrics, out)
+
+
+def write_html(fig, metrics, out):
+    """The plotly counterpart of `footer` then `savefig`: house colours, provenance, one file."""
+    fig.add_annotation(text=provenance(metrics), x=0.0, y=0.0, xref="paper", yref="paper",
+                       xanchor="left", yanchor="top", yshift=-18, showarrow=False,
+                       font=dict(size=10, color=INK_SOFT))
+    fig.update_layout(paper_bgcolor=SURFACE, plot_bgcolor=SURFACE,
+                      font=dict(color=INK_SOFT))
+    fig.write_html(out, include_plotlyjs=True)
 
 
 def traversal(model, data, scaler, metrics, device, axis, out):
@@ -1276,6 +1386,9 @@ def visualize(run, num_threads=1):
     model_cfg = TMVAEConfig(**checkpoint["model_config"])
     data = evaluate_module.collect(model, splits.test, model_cfg, device, cfg["batch_size"])
     history = read_history(run_dir)
+    # The partial-dependence grid is a million predictions; the PNG and the
+    # page share one computation, whichever asks first.
+    pdp = functools.cache(lambda: pdp_surface(model, data, scaler, metrics, device))
 
     figures = run_dir / paths.FIGURES
     traversals = figures / paths.TRAVERSALS
@@ -1288,10 +1401,14 @@ def visualize(run, num_threads=1):
         "reconstruction": lambda p: reconstruction(data, metrics, p),
         "latent": lambda p: latent(metrics, p),
         "latent_property": lambda p: latent_property(data, scaler, metrics, p),
-        "latent_property_3D": lambda p: latent_property_3D(model, data, scaler, metrics,
-                                                           device, p),
+        "latent_property_3D": lambda p: latent_property_3D(pdp(), metrics, p),
+    }
+    interactive = {
+        "latent_property_3D": lambda p: latent_property_3D_html(pdp(), metrics, p),
     }
     jobs = [(figures / f"{name}.png", diagnostics[name]) for name in paths.DIAGNOSTIC_FIGURES]
+    jobs += [(figures / f"{name}.html", interactive[name])
+             for name in paths.INTERACTIVE_FIGURES]
     jobs += [
         (traversals / f"traversal_{axis}.png",
          lambda p, a=axis: traversal(model, data, scaler, metrics, device, a, p))
