@@ -944,7 +944,9 @@ def decay_text(log_y):
         return f"{np.exp(log_y):.0f}"
     if np.log(1e-3) <= log_y < np.log(1.0):
         return f"{np.exp(log_y):.3g}"
-    return f"10^{log_y / np.log(10):.1f}"
+    # Past 10^±10⁴ the exponent itself needs significant figures, not decimals.
+    exponent = log_y / np.log(10)
+    return f"10^{exponent:.1f}" if abs(exponent) < 1e4 else f"10^({exponent:.3g})"
 
 
 def optimization(model, data, scaler, metrics, device, graph, lam, sense, out):
