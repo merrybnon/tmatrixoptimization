@@ -37,6 +37,7 @@ pipeline = "snakemake --snakefile workflow/Snakefile"
 [feature.ml.dependencies]
 pytorch = { version = ">=2.5,<3", build = "cuda*" }
 scikit-learn = ">=1.5,<2"
+plotly = ">=7.1.0,<8"
 
 [environments]
 ml = ["ml"]
