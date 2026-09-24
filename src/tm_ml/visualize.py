@@ -13,6 +13,9 @@ so a figure is self-describing wherever it ends up:
 - ``latent.png``          how many latent dimensions are actually carrying code
 - ``latent_property.png`` where graphs sit in the latent, coloured by the
                           property, at node and graph level and in two bases
+- ``latent_property_3D.png`` the predicted exponent as a partial-dependence
+                          surface over the global dim and sorted-160 PC1,
+                          as log ŷ and as ŷ, with the test graphs standing on it
 
 and into ``figures/interpolation_and_traversals/``:
 
@@ -46,7 +49,8 @@ from scipy.optimize import linear_sum_assignment
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt  # noqa: E402
-from matplotlib.colors import TwoSlopeNorm  # noqa: E402
+from matplotlib.colors import LogNorm, TwoSlopeNorm  # noqa: E402
+from scipy.interpolate import RegularGridInterpolator  # noqa: E402
 
 from tm_ml import evaluate as evaluate_module
 from tm_ml import optimize, paths
@@ -67,6 +71,11 @@ N_OPTIMIZATION_COLUMNS = 7
 OPTIMIZATION_LAMBDA = {"": 0.1, "_unreg": 0.0}
 # The sign s on log ŷ for each direction.
 OPTIMIZATION_SENSE = {"maximize": 1, "minimize": -1}
+# The partial-dependence surface: grid points per axis, padding past the test
+# graphs as a fraction of their range, and the (elevation, azimuth) it is seen from.
+PDP_GRID = 25
+PDP_PAD = 0.1
+PDP_VIEW = (25, -60)
 # Below this rate a dimension is prior noise, not code.
 ACTIVE_DIM_MIN_KL = 0.01
 LOG_FLOOR = 1e-12
@@ -688,6 +697,131 @@ def latent_property(data, scaler, metrics, out):
     plt.close(fig)
 
 
+def latent_property_3D(model, data, scaler, metrics, device, out):
+    """The predicted exponent as a surface over the global dim and sorted-160 PC1.
+
+    ŷ depends on every latent coordinate, so the surface is a partial
+    dependence: at each grid point (g, p) every test graph has its global dim
+    set to g and its PC1 score moved to p, keeping everything else at its own
+    encoding, and the prediction is averaged over the test graphs. That is
+    the effect of these two coordinates with the rest distributed as in the
+    data, not a slice through any one graph.
+
+    The PC1 move is the traversal's: shift the sorted descriptor along the
+    component and put the values back on the nodes they came from, so every
+    other component and the within-graph spread are untouched.
+
+    Two panels, each averaging what it plots: the mean of log ŷ on the left,
+    the mean of ŷ on the right, which is not exp of the left. The test graphs
+    stand at their own coordinates and true value, each with a stem to the
+    surface; the stem is how far the averaged-out coordinates move that graph.
+    """
+    mu = data["mu"].numpy()
+    mu_global = data["mu_global"].numpy()
+    log_y = scaler.inverse(data["y"].numpy())
+    n_graphs, n_nodes, d_latent = mu.shape
+    d_global = mu_global.shape[1]
+    n_sorted = n_nodes * d_latent
+    if not d_global:
+        return placeholder(metrics, out, "Latent property 3D — this run has no global latent")
+    if n_graphs <= 2:
+        return placeholder(metrics, out, "Latent property 3D — needs 3+ test graphs")
+    decay = np.exp(log_y)
+
+    top = latent_axes(mu, log_y, metrics, d_global)["top_global"]
+    global_kl = np.asarray(metrics.get("global_kl_per_dim") or np.zeros(d_global), dtype=float)
+    g = mu_global[:, top]
+
+    descriptor = sorted_descriptor(mu)
+    mean, _, right = principal_axes(descriptor)
+    direction = right[0]
+    score = (descriptor - mean) @ direction
+    # An eigenvector has no sign of its own; +PC1 is made to raise log y, as
+    # in the PC1 traversal.
+    if score.std() > 0 and np.corrcoef(score, log_y)[0, 1] < 0:
+        direction, score = -direction, -score
+    order = np.argsort(mu, axis=1)
+
+    def axis_grid(values):
+        low, high = values.min(), values.max()
+        pad = PDP_PAD * (high - low) if high > low else 1.0
+        return np.linspace(low - pad, high + pad, PDP_GRID)
+
+    g_grid, p_grid = axis_grid(g), axis_grid(score)
+
+    # One batch per PC1 value: every g on the grid for every test graph.
+    pdp_log = np.empty((PDP_GRID, PDP_GRID))
+    pdp_raw = np.empty((PDP_GRID, PDP_GRID))
+    with torch.no_grad():
+        for i, p in enumerate(p_grid):
+            z = unsort(descriptor + np.outer(p - score, direction), order)
+            z = np.tile(z, (PDP_GRID, 1, 1))
+            z_global = np.tile(mu_global, (PDP_GRID, 1))
+            z_global[:, top] = np.repeat(g_grid, n_graphs)
+            log_y_hat = model.predict(
+                *(torch.as_tensor(a, dtype=torch.float32, device=device) for a in (z, z_global))
+            ).cpu().numpy()
+            log_y_hat = scaler.inverse(log_y_hat).reshape(PDP_GRID, n_graphs)
+            # Mean over the test graphs, the axis the partial dependence integrates out.
+            pdp_log[i] = log_y_hat.mean(1)
+            pdp_raw[i] = np.exp(log_y_hat).mean(1)
+
+    G, P = np.meshgrid(g_grid, p_grid)
+    # Colour is the decay exponent on both panels, on a log scale so the two
+    # read alike and the skewed upper end does not take the whole ramp.
+    norm = LogNorm(min(decay.min(), np.exp(pdp_log).min(), pdp_raw.min()),
+                   max(decay.max(), np.exp(pdp_log).max(), pdp_raw.max()))
+
+    fig = plt.figure(figsize=(16, 7.6))
+    grid = fig.add_gridspec(1, 3, width_ratios=[1, 1, 0.03], left=0.01, right=0.95,
+                            top=0.88, bottom=0.1, wspace=0.08)
+    panels = (
+        (pdp_log, np.exp(pdp_log), log_y, "log ŷ",
+         f"Mean of log ŷ over the {n_graphs} test graphs"),
+        (pdp_raw, pdp_raw, decay, "ŷ",
+         f"Mean of ŷ over the {n_graphs} test graphs — not exp of the left"),
+    )
+    for column, (surface, colour, true, zlabel, title) in enumerate(panels):
+        ax = fig.add_subplot(grid[0, column], projection="3d")
+        faces = SEQUENTIAL(norm(colour))
+        faces[..., 3] = 0.72
+        ax.plot_surface(G, P, surface, facecolors=faces, rstride=1, cstride=1,
+                        linewidth=0.2, edgecolor=SURFACE, shade=False)
+
+        under = RegularGridInterpolator((p_grid, g_grid), surface)(np.c_[score, g])
+        for x, y, top_z, bottom_z in zip(g, score, true, under):
+            ax.plot([x, x], [y, y], [bottom_z, top_z], color=INK_SOFT, lw=0.5, alpha=0.5)
+        ax.scatter(g, score, true, c=decay, cmap=SEQUENTIAL, norm=norm, s=18,
+                   edgecolor=INK, linewidth=0.3, depthshade=False)
+
+        # Over the test graphs: how far they stand from the surface, against
+        # how far they spread about their own mean.
+        residual = np.sqrt(np.mean((true - under) ** 2))
+        ax.text2D(0.02, 0.97,
+                  f"test graphs to surface, RMS {residual:.3g}\n"
+                  f"test graphs about their mean, std {true.std():.3g}",
+                  transform=ax.transAxes, va="top", fontsize=8, color=INK_SOFT)
+        ax.set_xlabel(f"global dim {top} — {global_kl[top]:.2f} nats")
+        ax.set_ylabel(f"sorted-{n_sorted} PC1")
+        ax.set_zlabel(zlabel)
+        ax.set_title(title)
+        ax.view_init(elev=PDP_VIEW[0], azim=PDP_VIEW[1])
+        for pane in (ax.xaxis, ax.yaxis, ax.zaxis):
+            pane.set_pane_color(SURFACE)
+        ax.tick_params(labelsize=7)
+
+    bar = fig.colorbar(plt.cm.ScalarMappable(norm=norm, cmap=SEQUENTIAL),
+                       cax=fig.add_subplot(grid[0, 2]))
+    bar.set_label("decay exponent — partial dependence on the surface, true for test graphs",
+                  fontsize=8, color=INK_SOFT)
+    bar.ax.tick_params(labelsize=7)
+    fig.suptitle(f"Partial dependence of the predicted exponent on global dim {top} "
+                 f"and sorted-{n_sorted} PC1", fontsize=12, color=INK, x=0.005, ha="left")
+    footer(fig, metrics)
+    fig.savefig(out)
+    plt.close(fig)
+
+
 def traversal(model, data, scaler, metrics, device, axis, out):
     """Decode along one latent axis from real encodings: test graphs by steps.
 
@@ -1156,6 +1290,8 @@ def visualize(run, num_threads=1):
         "reconstruction": lambda p: reconstruction(data, metrics, p),
         "latent": lambda p: latent(metrics, p),
         "latent_property": lambda p: latent_property(data, scaler, metrics, p),
+        "latent_property_3D": lambda p: latent_property_3D(model, data, scaler, metrics,
+                                                           device, p),
     }
     jobs = [(figures / f"{name}.png", diagnostics[name]) for name in paths.DIAGNOSTIC_FIGURES]
     jobs += [

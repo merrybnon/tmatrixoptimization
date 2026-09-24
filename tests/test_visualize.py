@@ -8,7 +8,8 @@ from tm_ml import evaluate, paths, train, visualize
 from tm_ml.models import TMVAEConfig
 
 FIGURES = tuple(f"figures/{name}.png" for name in (
-    "training_curve", "predictions", "reconstruction", "latent", "latent_property"
+    "training_curve", "predictions", "reconstruction", "latent", "latent_property",
+    "latent_property_3D",
 )) + tuple(f"figures/interpolation_and_traversals/traversal_{axis}.png"
            for axis in ("gbd", "PC1", "PC2")) + (
     "figures/interpolation_and_traversals/interpolation.png",) + tuple(
