@@ -150,12 +150,16 @@ def report(search, graph, true_decay):
               f"{search.f[k]:>9.4f}  {norm[k]:>7.3f}  {moved[k]:>9.3f}  "
               f"{search.grad_norm[k]:>9.2e}")
 
+    print(f"  exit after {search.nit} iterations, {search.nfev} evaluations: {search.message}")
+    # A run that overflowed leaves the estimate non-finite too, with nothing to read.
+    if not np.isfinite(search.hess_inv).all():
+        print("  H⁻¹ estimate: not finite, the run overflowed")
+        return
     # B0 = I, and each iteration's rank-two update reshapes it along the one
     # new direction it stepped in, so eigenvalues still at 1 are directions
     # BFGS never learned anything about.
     eigenvalues = np.linalg.eigvalsh(search.hess_inv)
     learned = int((np.abs(eigenvalues - 1.0) > 1e-3).sum())
-    print(f"  exit after {search.nit} iterations, {search.nfev} evaluations: {search.message}")
     print(f"  H⁻¹ estimate: eigenvalues {eigenvalues.min():.3g} .. {eigenvalues.max():.3g}, "
           f"{learned} of {len(eigenvalues)} moved off 1")
 
