@@ -501,3 +501,7 @@ Re-evaluation is deterministic, as expected: across the 89 ledger rows no metric
 ## 2026-09-24 — minimizing the decay exponent
 
 Flipped the sign on log ŷ and lowered the regularized λ to 0.1, both directions, dg1 seed-1 run. Converged ŷ per test graph (true in brackets), minimize and maximize: g0 (82) 23 and 3.1e5, g1 (224) 36 and 416, g2 (545) 71 and 2.7e5. The descents leave the test cloud, and the 1e5 ascents are far past any test graph, so read both as partly extrapolation. Unregularized, the minimize paths run away like the ascents; g2 reaches ‖x‖ ≈ 1e153, where the decoder returns NaN.
+
+## 2026-09-24 — the predicted exponent as a 3D surface
+
+`latent_property_3D` draws ŷ over the highest-rate global dim and sorted-160 PC1 as a partial dependence: each grid point set in all 100 test graphs, everything else kept, ŷ averaged over the test graphs. PC1 replaced the top property node dim, which would have needed one value spread over 20 nodes. On the dg1 seed-0 run, over ±4 global and ±7 PC1, log ŷ rises mostly along PC1 and flattens outside the test cloud in both directions, so the predictor saturates rather than extrapolating linearly along these two axes. Test graphs sit an RMS 0.43 in log y from the surface against a std of 0.63 about their mean, both over the test graphs: the two axes carry part of the variation, and the averaged-out coordinates still move single graphs a lot. The PNG hides points behind the surface, hence the plotly page.
