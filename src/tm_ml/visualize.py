@@ -88,7 +88,7 @@ OPTIMIZATION_SENSE = {"maximize": 1, "minimize": -1}
 PDP_GRID = 100
 PDP_GLOBAL_EXTENT = 4.0
 PDP_PC1_EXTENT = 7.0
-PDP_VIEW = (25, -60)
+PDP_VIEW = (25, 120)
 # Below this rate a dimension is prior noise, not code.
 ACTIVE_DIM_MIN_KL = 0.01
 LOG_FLOOR = 1e-12
