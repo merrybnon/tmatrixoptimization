@@ -42,4 +42,6 @@ def style():
         "legend.fontsize": 8,
         "lines.linewidth": 1.8,
         "figure.dpi": 140,
+        # Saved at print resolution so figures stay sharp on slides.
+        "savefig.dpi": 300,
     })

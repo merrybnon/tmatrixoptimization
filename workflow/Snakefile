@@ -173,7 +173,9 @@ rule visualize:
         # this after evaluate — a real dependency rather than a directive.
         metrics="results/{run}/metrics.json",
         data=run_data,
-        src=[f"{PKG}/visualize.py", f"{PKG}/evaluate.py", f"{PKG}/optimize.py"] + SHARED_SRC,
+        src=[f"{PKG}/{name}" for name in
+             ("visualize.py", "evaluate.py", "optimize.py", "landscape.py", "style.py")]
+            + SHARED_SRC,
     output:
         expand("results/{{run}}/{figure}", figure=FIGURE_FILES),
     log:
