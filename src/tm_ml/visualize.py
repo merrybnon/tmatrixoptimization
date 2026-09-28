@@ -58,7 +58,7 @@ from scipy.optimize import linear_sum_assignment
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt  # noqa: E402
 from matplotlib.colors import LogNorm, TwoSlopeNorm, to_hex  # noqa: E402
-from matplotlib.patches import FancyArrowPatch, Rectangle  # noqa: E402
+from matplotlib.patches import FancyArrowPatch  # noqa: E402
 from scipy.interpolate import RegularGridInterpolator  # noqa: E402
 
 from tm_ml import evaluate as evaluate_module
@@ -66,7 +66,7 @@ from tm_ml import landscape, optimize, paths
 from tm_ml.ingest import git_commit
 from tm_ml.models import TMVAEConfig, off_diagonal
 from tm_ml.style import (
-    DIVERGING, GRID, INK, INK_SOFT, MATRIX, SEQUENTIAL, SURFACE, THIRD, TRAIN, VAL, style,
+    DIVERGING, GRID, INK, INK_SOFT, SEQUENTIAL, SURFACE, THIRD, TRAIN, VAL, style,
 )
 
 N_EXAMPLES = 3
@@ -238,14 +238,6 @@ def log_matrix(T):
     return np.where(off, np.log10(np.clip(T, 1e-14, None)), np.nan)
 
 
-def hatch_diagonal(ax, n):
-    """Hatch the structural zero diagonal, which would otherwise read as the
-    white end of the matrix scale."""
-    for i in range(n):
-        ax.add_patch(Rectangle((i - 0.5, i - 0.5), 1, 1, fill=False, hatch="////",
-                               edgecolor=GRID, linewidth=0))
-
-
 def sorted_descriptor(mu):
     """Each dimension's node values sorted, flattened: ``(graphs, n_nodes * d_latent)``.
 
@@ -294,8 +286,8 @@ def reconstruction(data, metrics, out):
 
     for row in range(N_EXAMPLES):
         for column, (values, title, cmap, norm) in enumerate((
-            (log_true[row], "true, log₁₀ T", MATRIX, None),
-            (log_pred[row], "reconstructed, log₁₀ T̂", MATRIX, None),
+            (log_true[row], "true, log₁₀ T", SEQUENTIAL, None),
+            (log_pred[row], "reconstructed, log₁₀ T̂", SEQUENTIAL, None),
             (difference[row], "log₁₀(T̂ / T) — red is over-predicted", DIVERGING,
              TwoSlopeNorm(vcenter=0.0, vmin=-spread, vmax=spread)),
         )):
@@ -306,7 +298,6 @@ def reconstruction(data, metrics, out):
                 vmax=0.0 if norm is None else None,
                 interpolation="nearest",
             )
-            hatch_diagonal(ax, values.shape[-1])
             ax.set_xticks([])
             ax.set_yticks([])
             ax.grid(False)
@@ -320,7 +311,7 @@ def reconstruction(data, metrics, out):
     table = metrics["_by_magnitude"]
     centres = [0.5 * (r["true_min"] + r["true_max"]) for r in table]
     ax.plot(centres, [r["mean_abs_log_error"] for r in table],
-            color=INK, marker="o", markersize=5, label="mean |log T − log T̂|")
+            color=TRAIN, marker="o", markersize=5, label="mean |log T − log T̂|")
     ax.set_xscale("log")
     ax.set_xlabel("true entry (decile midpoint)")
     ax.set_ylabel("mean absolute log error")
