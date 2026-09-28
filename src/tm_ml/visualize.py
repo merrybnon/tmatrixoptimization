@@ -1013,7 +1013,6 @@ def graph_views(mu, mu_global, log_y, metrics):
     n_graphs, n_nodes, d_latent = mu.shape
     d_global = mu_global.shape[1]
     ranked = latent_axes(mu, log_y, metrics, d_global)
-    correlation, kl_per_dim = ranked["correlation"], ranked["kl_per_dim"]
     n_sorted = n_nodes * d_latent
 
     def two(order):
@@ -1021,12 +1020,10 @@ def graph_views(mu, mu_global, log_y, metrics):
         order = list(order)
         return (order + [d for d in range(d_latent) if d not in order])[:2]
 
-    def label(dim, basis):
-        if basis == "rate":
-            return f"graph mean, dim {dim} — {kl_per_dim[dim]:.2f} nats"
-        return f"graph mean, dim {dim} — r {correlation[dim]:+.2f}"
+    def label(dim):
+        return f"graph mean, dim {dim}"
 
-    def means(title, order, basis):
+    def means(title, order):
         """A graph-mean view on the first two dimensions of `order`.
 
         At d_latent = 1 there is no second dimension to pad with, so y is held
@@ -1037,14 +1034,14 @@ def graph_views(mu, mu_global, log_y, metrics):
         """
         dims = two(order)
         if len(dims) == 2:
-            return (title, label(dims[0], basis), label(dims[1], basis),
+            return (title, label(dims[0]), label(dims[1]),
                     lambda z, z_global: z.mean(1)[:, dims])
-        return (title, label(dims[0], basis), "held at 0 — one latent dimension",
+        return (title, label(dims[0]), "held at 0 — one latent dimension",
                 lambda z, z_global: np.c_[z.mean(1)[:, dims[0]], np.zeros(len(z))])
 
     views = [
-        means("Graph means, highest-rate axes", ranked["by_rate"], "rate"),
-        means("Graph means, property axes", ranked["by_property"], "property"),
+        means("Graph means, highest-rate axes", ranked["by_rate"]),
+        means("Graph means, property axes", ranked["by_property"]),
     ]
 
     if n_graphs > 2:
@@ -1058,10 +1055,10 @@ def graph_views(mu, mu_global, log_y, metrics):
 
     if d_global:
         top = ranked["top_global"]
-        g_label = f"global dim {top} — {ranked['global_kl'][top]:.2f} nats"
-        for dim, basis, criterion in ((ranked["by_rate"][0], "rate", "highest-rate"),
-                                      (ranked["by_property"][0], "property", "top property")):
-            views.append((f"Global against the {criterion} node dim", g_label, label(dim, basis),
+        g_label = f"global dim {top}"
+        for dim, criterion in ((ranked["by_rate"][0], "highest-rate"),
+                               (ranked["by_property"][0], "top property")):
+            views.append((f"Global against the {criterion} node dim", g_label, label(dim),
                           lambda z, z_global, dim=dim: np.c_[z_global[:, top], z.mean(1)[:, dim]]))
         if sorted_pcs is not None:
             views.append((f"Global against sorted-{n_sorted} PC1", g_label,
