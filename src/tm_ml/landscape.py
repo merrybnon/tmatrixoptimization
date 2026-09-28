@@ -11,12 +11,24 @@ scale. `to_unit_square` picks a convention for a layout on its own; `align`
 places one layout onto another with the same node labels, which removes the
 ambiguity entirely.
 
+`draw` puts a layout on an axis as the source deck does, blue nodes under
+directed edges whose width follows the weight.
+
 Kept free of torch so it runs in the default environment.
 """
 
 import numpy as np
+from matplotlib.patches import FancyArrowPatch
+
+from tm_ml.style import INK, SURFACE, TRAIN
 
 DISPERSAL_POWER = 4
+# The widest edge, in points, drawn for the heaviest T_ij, every other edge in
+# proportion and none thinner than the floor, so weak links stay visible.
+EDGE_WIDTH_MAX = 4.0
+EDGE_WIDTH_MIN = 0.12
+# Room around the unit square, and around any layout that leaves it.
+MARGIN = 0.08
 # Rotations tried when squaring a layout, over the quarter turn that exhausts them.
 SQUARE_ANGLES = np.deg2rad(np.arange(0.0, 90.0, 0.05))
 
@@ -99,3 +111,34 @@ def generate(points):
     off = ~np.eye(len(points), dtype=bool)
     W[off] = D[off] ** -DISPERSAL_POWER
     return W / W.sum(axis=1, keepdims=True)
+
+
+def limits(*layouts):
+    """Shared axis limits: the unit square with a margin, grown to fit every layout."""
+    every = np.concatenate(layouts)
+    return (min(-MARGIN, every.min() - 0.75 * MARGIN), max(1 + MARGIN, every.max() + 0.75 * MARGIN))
+
+
+def draw(ax, T, xy, heaviest, bounds, width_max=EDGE_WIDTH_MAX, node_size=150, label_size=6.5):
+    """Directed edges i → j as arcs of width ∝ T_ij / ``heaviest``, the two
+    directions of a pair bowing to opposite sides, under numbered nodes."""
+    n = len(xy)
+    shrink = np.sqrt(node_size) / 2
+    for i in range(n):
+        for j in range(n):
+            if i == j:
+                continue
+            width = max(width_max * T[i, j] / heaviest, EDGE_WIDTH_MIN)
+            ax.add_patch(FancyArrowPatch(
+                xy[i], xy[j], connectionstyle="arc3,rad=0.2", arrowstyle="-|>",
+                mutation_scale=4.0 + 2.5 * width, linewidth=width, color=INK,
+                shrinkA=shrink, shrinkB=shrink, zorder=1,
+            ))
+    ax.scatter(xy[:, 0], xy[:, 1], s=node_size, color=TRAIN, edgecolor=SURFACE,
+               linewidth=1.0, zorder=2)
+    for k, (x, y) in enumerate(xy):
+        ax.text(x, y, str(k), ha="center", va="center", fontsize=label_size, color=SURFACE,
+                zorder=3)
+    ax.set_xlim(*bounds)
+    ax.set_ylim(*bounds)
+    ax.set_aspect("equal")
