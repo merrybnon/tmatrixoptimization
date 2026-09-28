@@ -23,6 +23,10 @@ All notable changes to this project will be documented in this file. The format 
 - `src/tm_ml/architecture.py`, `workflow/Snakefile`, `pixi.toml`: a per-run architecture diagram, `figures/architecture.mmd` (Mermaid source) and `figures/architecture.svg`, drawn from the checkpoint so it shows what was trained: layer counts, widths, heads, dropout, pooling mode, whether the graph-level latent exists, the loss weights, and each block's parameter count summed from the state dict. Laid out left to right, encoder → latent → decoder → T̂, with the predictor branching off the latent below the decoder. Rendered by mermaid-cli 11.17.0 through npx, which fetches it and a headless Chrome on first use; `--no-render` writes the source alone. A new `architecture` rule reads only the checkpoint on the cpu, so it holds no gpu token. `tests/test_architecture.py` covers both latent variants.
 - `src/tm_ml/optimize.py`, `visualize.py`: minimizing the predicted exponent, a `sense` of ±1 on log ŷ; `minimize_g#[_unreg].png` beside the maximize figures.
 - `src/tm_ml/visualize.py`, `paths.py`, `workflow/Snakefile`, `pixi.toml`: `latent_property_3D.png` and `.html`, the partial dependence of ŷ on the global dim and sorted-160 PC1 over a 100 × 100 grid, as log ŷ and as ŷ, with test graphs stemmed to the surface. The HTML is plotly with plotly.js embedded, listed through `INTERACTIVE_FIGURES`; plotly added to the ml env. `unsort` now holds the sorted-descriptor inverse the PC traversals used inline.
+- `src/tm_ml/landscape.py`: node positions from a transition matrix, inverting the generator through the stationary distribution and classical MDS; `align` (Procrustes on node labels), `to_unit_square`, and `draw`, the deck's spatial graph with blue nodes and edge width ∝ T_ij. Torch-free. `tests/test_landscape.py`.
+- `src/tm_ml/visualize.py`, `paths.py`: `spatial_graph.png`, three test examples laid out from T and from T̂ aligned to it; and a `_spatial` twin of each traversal and of the interpolation, each row aligned outward from its reconstruction.
+- `src/tm_ml/data_figures.py`: `example_matrices_spatial.png`.
+- `docs/notes/2026-9-11 The ML Problem.pptx`: the slides describing how the matrices are generated.
 
 ### Removed
 
@@ -36,6 +40,9 @@ All notable changes to this project will be documented in this file. The format 
 
 ### Changed
 
+- `src/tm_ml/style.py`: figures saved at 300 dpi; `PROPERTY`, a green scale, and `PROPERTY_SOLID` for the decay exponent in every figure, matrices staying blue.
+- `src/tm_ml/visualize.py`: `latent_property.png` keeps only its global and sorted-PCA rows, one point per graph; the node rows and both correlation tables are gone, with `node_features`. Nats and r dropped from its labels and the optimization figures'; `latent_property_3D` loses its panel titles and RMS/std notes and is viewed from the upslope side. The colorbar no longer inherits the scatter's transparency.
+- `workflow/Snakefile`: `landscape.py` and `style.py` are inputs of visualize, so changing them re-renders.
 - `src/tm_ml/visualize.py`, `paths.py`: optimization figures moved to `figures/optimization/` as `maximize_g#` and `minimize_g#`; regularized λ lowered from 1 to 0.1.
 - `docs/notes/architecture.md`: the encoder's attention is described as it is implemented, scaled dot-product attention plus an additive per-head Graphormer edge bias, in the diagram's update line and the sources table, in place of the GATv2 form the note had prescribed.
 - `src/tm_ml/style.py`, `visualize.py`: the palette and `style()` moved out of `visualize.py` into a torch-free module, so figures that read only `data/processed/` run in the default env. `visualize.py` draws exactly as before.
