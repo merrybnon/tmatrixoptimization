@@ -626,7 +626,7 @@ def pdp_surface(model, data, scaler, metrics, device):
     other component and the within-graph spread are untouched.
 
     Two panels, each averaging what it plots: the mean of log ŷ, and the mean
-    of ŷ, which is not exp of the first. Computed once and drawn twice, as
+    of ŷ, which is not exp of the first; each z label says which. Computed once and drawn twice, as
     `latent_property_3D`'s PNG and `latent_property_3D_html`'s page. Returns
     ``{"message": ...}`` instead when there is nothing to draw.
     """
@@ -643,7 +643,6 @@ def pdp_surface(model, data, scaler, metrics, device):
     decay = np.exp(log_y)
 
     top = latent_axes(mu, log_y, metrics, d_global)["top_global"]
-    global_kl = np.asarray(metrics.get("global_kl_per_dim") or np.zeros(d_global), dtype=float)
     g = mu_global[:, top]
 
     descriptor = sorted_descriptor(mu)
@@ -677,20 +676,15 @@ def pdp_surface(model, data, scaler, metrics, device):
             pdp_raw[i] = np.exp(log_y_hat).mean(1)
 
     panels = []
-    for surface, colour, true, zlabel, title in (
-        (pdp_log, np.exp(pdp_log), log_y, "log ŷ",
-         f"Mean of log ŷ over the {n_graphs} test graphs"),
-        (pdp_raw, pdp_raw, decay, "ŷ",
-         f"Mean of ŷ over the {n_graphs} test graphs — not exp of the left"),
+    for surface, colour, true, zlabel in (
+        (pdp_log, np.exp(pdp_log), log_y, "mean log ŷ"),
+        (pdp_raw, pdp_raw, decay, "mean ŷ"),
     ):
+        # The surface under each test graph, where its stem starts.
         under = RegularGridInterpolator((p_grid, g_grid), surface, bounds_error=False,
                                         fill_value=None)(np.c_[score, g])
-        # Over the test graphs: how far they stand from the surface, against
-        # how far they spread about their own mean.
-        note = (f"test graphs to surface, RMS {np.sqrt(np.mean((true - under) ** 2)):.3g}\n"
-                f"test graphs about their mean, std {true.std():.3g}")
         panels.append({"surface": surface, "colour": colour, "true": true, "under": under,
-                       "zlabel": zlabel, "title": title, "note": note})
+                       "zlabel": zlabel})
 
     # Colour is the decay exponent on both panels, on a log scale so the two
     # read alike and the skewed upper end does not take the whole ramp.
@@ -699,7 +693,7 @@ def pdp_surface(model, data, scaler, metrics, device):
         "panels": panels,
         "low": min(decay.min(), np.exp(pdp_log).min(), pdp_raw.min()),
         "high": max(decay.max(), np.exp(pdp_log).max(), pdp_raw.max()),
-        "xlabel": f"global dim {top} — {global_kl[top]:.2f} nats",
+        "xlabel": f"global dim {top}",
         "ylabel": f"sorted-{n_sorted} PC1",
         "title": (f"Partial dependence of the predicted exponent on global dim {top} "
                   f"and sorted-{n_sorted} PC1"),
@@ -728,12 +722,9 @@ def latent_property_3D(pdp, metrics, out):
         ax.scatter(g, score, panel["true"], c=decay, cmap=PROPERTY, norm=norm, s=18,
                    edgecolor=INK, linewidth=0.3, depthshade=False)
 
-        ax.text2D(0.02, 0.97, panel["note"], transform=ax.transAxes, va="top",
-                  fontsize=8, color=INK_SOFT)
         ax.set_xlabel(pdp["xlabel"])
         ax.set_ylabel(pdp["ylabel"])
         ax.set_zlabel(panel["zlabel"])
-        ax.set_title(panel["title"])
         ax.view_init(elev=PDP_VIEW[0], azim=PDP_VIEW[1])
         for pane in (ax.xaxis, ax.yaxis, ax.zaxis):
             pane.set_pane_color(SURFACE)
@@ -769,12 +760,7 @@ def latent_property_3D_html(pdp, metrics, out):
     ticks = [v for v in (20, 50, 100, 200, 500, 1000, 2000, 5000, 10000)
              if low <= np.log10(v) <= high]
 
-    fig = make_subplots(
-        1, 2, specs=[[{"type": "scene"}] * 2], horizontal_spacing=0.02,
-        subplot_titles=[f"{p['title']}<br><span style='font-size:11px;color:{INK_SOFT}'>"
-                        f"{p['note'].replace(chr(10), '  ·  ')}</span>"
-                        for p in pdp["panels"]],
-    )
+    fig = make_subplots(1, 2, specs=[[{"type": "scene"}] * 2], horizontal_spacing=0.02)
     elevation, azimuth = np.radians(PDP_VIEW)
     eye = 2.1 * np.array([np.cos(elevation) * np.cos(azimuth),
                           np.cos(elevation) * np.sin(azimuth), np.sin(elevation)])
