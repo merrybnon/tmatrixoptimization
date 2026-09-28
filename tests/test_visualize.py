@@ -11,9 +11,10 @@ FIGURES = tuple(f"figures/{name}.png" for name in (
     "training_curve", "predictions", "reconstruction", "spatial_graph", "latent",
     "latent_property",
     "latent_property_3D",
-)) + ("figures/latent_property_3D.html",) + tuple(f"figures/interpolation_and_traversals/traversal_{axis}.png"
-           for axis in ("gbd", "PC1", "PC2")) + (
-    "figures/interpolation_and_traversals/interpolation.png",) + tuple(
+)) + ("figures/latent_property_3D.html",) + tuple(f"figures/interpolation_and_traversals/traversal_{axis}{view}.png"
+           for axis in ("gbd", "PC1", "PC2") for view in ("", "_spatial")) + (
+    "figures/interpolation_and_traversals/interpolation.png",
+    "figures/interpolation_and_traversals/interpolation_spatial.png") + tuple(
     f"figures/optimization/{sense}_g{graph}{variant}.png"
     for sense in ("maximize", "minimize")
     for graph in (0, 1, 2) for variant in ("", "_unreg"))

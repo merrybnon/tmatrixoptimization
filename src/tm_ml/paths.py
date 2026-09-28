@@ -82,6 +82,10 @@ DIAGNOSTIC_FIGURES = ("training_curve", "predictions", "reconstruction", "spatia
 INTERACTIVE_FIGURES = ("latent_property_3D",)
 TRAVERSAL_AXES = ("gbd", "PC1", "PC2")
 INTERPOLATIONS = ("interpolation",)
+# Each traversal and interpolation is drawn twice: as matrices, and with the
+# suffix as spatial graphs, the landscape each decoded matrix implies.
+SPATIAL = "_spatial"
+PATH_VIEWS = ("", SPATIAL)
 # BFGS latent optimization from each of these test examples, pushing the
 # predicted exponent up and down, each once regularized and once not; the
 # prefix names the sense and the suffix the variant.

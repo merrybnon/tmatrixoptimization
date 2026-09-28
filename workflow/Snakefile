@@ -29,7 +29,8 @@ from tm_ml.config import expand_sweep
 from tm_ml.ingest import RAW_DIR, find_source
 from tm_ml.architecture import RENDERED as ARCH_SVG, SOURCE as ARCH_SOURCE
 from tm_ml.paths import (DIAGNOSTIC_FIGURES, FIGURES, INTERACTIVE_FIGURES, INTERPOLATIONS,
-                         OPTIMIZATION, OPTIMIZATIONS, TRAVERSAL_AXES, TRAVERSALS, run_path)
+                         OPTIMIZATION, OPTIMIZATIONS, PATH_VIEWS, TRAVERSAL_AXES, TRAVERSALS,
+                         run_path)
 
 ALL_DROPS = sorted(p.name for p in RAW_DIR.iterdir() if p.is_dir())
 
@@ -52,8 +53,11 @@ BENCHMARKS_CSV = "docs/benchmarks/runs.csv"
 FIGURE_FILES = [f"{FIGURES}/{name}.png" for name in DIAGNOSTIC_FIGURES] + [
     f"{FIGURES}/{name}.html" for name in INTERACTIVE_FIGURES
 ] + [
-    f"{FIGURES}/{TRAVERSALS}/traversal_{axis}.png" for axis in TRAVERSAL_AXES
-] + [f"{FIGURES}/{TRAVERSALS}/{name}.png" for name in INTERPOLATIONS] + [
+    f"{FIGURES}/{TRAVERSALS}/traversal_{axis}{view}.png"
+    for axis in TRAVERSAL_AXES for view in PATH_VIEWS
+] + [
+    f"{FIGURES}/{TRAVERSALS}/{name}{view}.png" for name in INTERPOLATIONS for view in PATH_VIEWS
+] + [
     f"{FIGURES}/{OPTIMIZATION}/{name}.png" for name in OPTIMIZATIONS
 ]
 ARCHITECTURE_FILES = [f"{FIGURES}/{ARCH_SOURCE}", f"{FIGURES}/{ARCH_SVG}"]
