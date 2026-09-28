@@ -21,6 +21,8 @@ SEQUENTIAL = LinearSegmentedColormap.from_list(
 PROPERTY = LinearSegmentedColormap.from_list(
     "green", ["#d2f1e3", "#a3e2c6", "#6fcfa6", "#1baf7a", "#138a5f", "#0d6446", "#094a34"]
 )
+# The ramp's middle, for exponent points drawn in a single colour.
+PROPERTY_SOLID = "#1baf7a"
 # Two poles and a neutral gray midpoint, for signed error.
 DIVERGING = LinearSegmentedColormap.from_list(
     "blue_red", ["#104281", "#6da7ec", "#f0efec", "#e87b7b", "#8f1f1f"]

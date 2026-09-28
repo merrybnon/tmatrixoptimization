@@ -33,7 +33,7 @@ import matplotlib.pyplot as plt  # noqa: E402
 
 from tm_ml import landscape  # noqa: E402
 from tm_ml.ingest import PROCESSED_DIR, git_commit  # noqa: E402
-from tm_ml.style import INK, INK_SOFT, SEQUENTIAL, TRAIN, VAL, style  # noqa: E402
+from tm_ml.style import INK, INK_SOFT, PROPERTY_SOLID, SEQUENTIAL, VAL, style  # noqa: E402
 
 N_BINS = 40
 N_EXAMPLES = 4
@@ -67,13 +67,13 @@ def target_statistics(targets, meta, out):
 
     for row, scale in enumerate(("linear", "log")):
         ax = axes[row, 0]
-        ax.hist(targets, bins=bins[scale], color=TRAIN, edgecolor="white", linewidth=0.5)
+        ax.hist(targets, bins=bins[scale], color=PROPERTY_SOLID, edgecolor="white", linewidth=0.5)
         ax.set_ylabel("matrices")
         ax.set_title(f"Histogram, {scale} bins")
 
         ax = axes[row, 1]
         ax.step(np.concatenate([[ordered[0]], ordered]),
-                np.concatenate([[1.0], survival]), where="post", color=TRAIN)
+                np.concatenate([[1.0], survival]), where="post", color=PROPERTY_SOLID)
         ax.set_ylim(0, 1.02)
         ax.set_ylabel("fraction with target > t")
         ax.set_title(f"Survival, {scale} axis")
@@ -209,7 +209,7 @@ def uniformness_vs_target(matrices, targets, meta, out, scale):
     fig.subplots_adjust(left=0.08, right=0.98, top=0.9, bottom=0.1, hspace=0.34, wspace=0.22)
     for ax, (title, xlabel, values) in zip(axes.flat, uniformness(matrices)):
         rho = spearmanr(values, targets).statistic
-        ax.scatter(values, targets, s=10, alpha=0.5, color=TRAIN, edgecolors="none")
+        ax.scatter(values, targets, s=10, alpha=0.5, color=PROPERTY_SOLID, edgecolors="none")
         ax.set_yscale(scale)
         ax.set_title(f"{title}   (Spearman ρ {rho:+.2f})")
         ax.set_xlabel(xlabel)

@@ -67,7 +67,8 @@ from tm_ml import landscape, optimize, paths
 from tm_ml.ingest import git_commit
 from tm_ml.models import TMVAEConfig, off_diagonal
 from tm_ml.style import (
-    DIVERGING, GRID, INK, INK_SOFT, PROPERTY, SEQUENTIAL, SURFACE, THIRD, TRAIN, VAL, style,
+    DIVERGING, GRID, INK, INK_SOFT, PROPERTY, PROPERTY_SOLID, SEQUENTIAL, SURFACE, THIRD,
+    TRAIN, VAL, style,
 )
 
 N_EXAMPLES = 3
@@ -186,7 +187,7 @@ def predictions(data, scaler, metrics, out):
     ax = axes[0]
     limits = [min(true.min(), predicted.min()) * 0.9, max(true.max(), predicted.max()) * 1.1]
     ax.plot(limits, limits, color=INK_SOFT, linewidth=1.0, linestyle="--", label="exact")
-    ax.scatter(true, predicted, s=22, color=TRAIN, edgecolor=SURFACE,
+    ax.scatter(true, predicted, s=22, color=PROPERTY_SOLID, edgecolor=SURFACE,
                linewidth=0.5, label="test example")
     # Prediction regressed on truth, against the identity line. The gap between
     # them is resolution, not error: where they cross is the only exponent the
@@ -209,7 +210,7 @@ def predictions(data, scaler, metrics, out):
     ax = axes[1]
     residual = log_y_hat - log_y
     ax.axhline(0.0, color=INK_SOFT, linewidth=1.0, linestyle="--")
-    ax.scatter(true, residual, s=22, color=TRAIN, edgecolor=SURFACE, linewidth=0.5)
+    ax.scatter(true, residual, s=22, color=PROPERTY_SOLID, edgecolor=SURFACE, linewidth=0.5)
     # The same fit, seen as the tilt it puts on the residual: slope − 1.
     ax.plot(np.exp(grid), (slope - 1.0) * grid + intercept, color=INK, linewidth=1.4)
     ax.set_xscale("log")
@@ -856,13 +857,13 @@ def latent_property_3D(pdp, metrics, out):
                             top=0.88, bottom=0.1, wspace=0.08)
     for column, panel in enumerate(pdp["panels"]):
         ax = fig.add_subplot(grid[0, column], projection="3d")
-        faces = SEQUENTIAL(norm(panel["colour"]))
+        faces = PROPERTY(norm(panel["colour"]))
         faces[..., 3] = 0.72
         ax.plot_surface(G, P, panel["surface"], facecolors=faces, rstride=1, cstride=1,
                         linewidth=0, antialiased=False, shade=False)
         for x, y, top_z, bottom_z in zip(g, score, panel["true"], panel["under"]):
             ax.plot([x, x], [y, y], [bottom_z, top_z], color=INK_SOFT, lw=0.5, alpha=0.5)
-        ax.scatter(g, score, panel["true"], c=decay, cmap=SEQUENTIAL, norm=norm, s=18,
+        ax.scatter(g, score, panel["true"], c=decay, cmap=PROPERTY, norm=norm, s=18,
                    edgecolor=INK, linewidth=0.3, depthshade=False)
 
         ax.text2D(0.02, 0.97, panel["note"], transform=ax.transAxes, va="top",
@@ -876,7 +877,7 @@ def latent_property_3D(pdp, metrics, out):
             pane.set_pane_color(SURFACE)
         ax.tick_params(labelsize=7)
 
-    bar = fig.colorbar(plt.cm.ScalarMappable(norm=norm, cmap=SEQUENTIAL),
+    bar = fig.colorbar(plt.cm.ScalarMappable(norm=norm, cmap=PROPERTY),
                        cax=fig.add_subplot(grid[0, 2]))
     bar.set_label("decay exponent — partial dependence on the surface, true for test graphs",
                   fontsize=8, color=INK_SOFT)
@@ -951,7 +952,7 @@ def latent_property_3D_html(pdp, metrics, out):
     fig.update_layout(
         title=dict(text=pdp["title"], x=0.005, font=dict(size=18, color=INK)),
         coloraxis=dict(
-            colorscale=[[t, to_hex(SEQUENTIAL(t))] for t in np.linspace(0, 1, 11)],
+            colorscale=[[t, to_hex(PROPERTY(t))] for t in np.linspace(0, 1, 11)],
             cmin=low, cmax=high,
             colorbar=dict(title=dict(text="decay exponent", side="right"),
                           tickvals=np.log10(ticks), ticktext=[str(v) for v in ticks]),
@@ -1314,7 +1315,7 @@ def optimization(model, data, scaler, metrics, device, graph, lam, sense, out):
     for index, (title, xlabel, ylabel, project) in enumerate(views):
         ax = fig.add_subplot(lower[index // 4, index % 4])
         background = project(mu, mu_global)
-        ax.scatter(background[:, 0], background[:, 1], c=decay, cmap=SEQUENTIAL,
+        ax.scatter(background[:, 0], background[:, 1], c=decay, cmap=PROPERTY,
                    norm=norm, s=30, alpha=0.4, linewidth=0)
         points = project(path.z, path.z_global)
         for k in range(len(points) - 1):
@@ -1324,7 +1325,7 @@ def optimization(model, data, scaler, metrics, device, graph, lam, sense, out):
                                             mutation_scale=8, shrinkA=2, shrinkB=2))
         for sl, marker, size in ((slice(1, -1), "o", 24), (slice(0, 1), "s", 70),
                                  (slice(-1, None), "*", 190)):
-            ax.scatter(points[sl, 0], points[sl, 1], c=path_colour[sl], cmap=SEQUENTIAL,
+            ax.scatter(points[sl, 0], points[sl, 1], c=path_colour[sl], cmap=PROPERTY,
                        norm=norm, marker=marker, s=size, edgecolor=INK, linewidth=0.8,
                        zorder=3)
         ax.set_title(title)
@@ -1348,13 +1349,13 @@ def optimization(model, data, scaler, metrics, device, graph, lam, sense, out):
                                ("o", 24, "BFGS iterate"), ("*", 190, "final iterate")):
         ax.scatter([], [], marker=marker, s=size, color=SURFACE, edgecolor=INK,
                    linewidth=0.8, label=name)
-    ax.scatter([], [], s=30, color=TRAIN, alpha=0.4, linewidth=0,
+    ax.scatter([], [], s=30, color=PROPERTY_SOLID, alpha=0.4, linewidth=0,
                label="test graphs, true exponent")
     ax.legend(loc="lower left", fontsize=8)
 
     # A mappable of its own, so the bar shows the colours at full strength
     # rather than at the background's transparency.
-    bar = fig.colorbar(plt.cm.ScalarMappable(norm=norm, cmap=SEQUENTIAL),
+    bar = fig.colorbar(plt.cm.ScalarMappable(norm=norm, cmap=PROPERTY),
                        cax=fig.add_subplot(lower[:, 4]), extend="max" if sense > 0 else "min")
     bar.set_label("decay exponent — true for test graphs, predicted on the path",
                   fontsize=8, color=INK_SOFT)
