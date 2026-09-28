@@ -15,7 +15,8 @@ so a figure is self-describing wherever it ends up:
                           reconstruction aligned to the truth
 - ``latent.png``          how many latent dimensions are actually carrying code
 - ``latent_property.png`` where graphs sit in the latent, coloured by the
-                          property, at node and graph level and in two bases
+                          property: the global against node-side axes, and
+                          the sorted PCA with and without the global
 - ``latent_property_3D.png`` the predicted exponent as a partial-dependence
                           surface over the global dim and sorted-160 PC1,
                           as log ŷ and as ŷ, with the test graphs standing on it
@@ -450,36 +451,6 @@ def latent_row(axes, metrics, prefix, name, unit):
     ax.set_title(f"{name} effective width, four ways")
 
 
-def node_features(T):
-    """Interpretable per-node summaries, each equivariant under relabelling.
-
-    Every one reduces over the *other* index, so it is a property of the node
-    and not of the labelling — the condition `permutationsandlatent.md` sets out
-    for a legitimate node feature. These are what make the latent axes readable:
-    a dimension is named by what it correlates with.
-    """
-    n = T.shape[-1]
-    off = off_diagonal(n, torch.device("cpu")).numpy()
-    log_T = np.log(np.clip(T, LOG_FLOOR, None))
-
-    column = T / np.clip(T.sum(1, keepdims=True), LOG_FLOOR, None)
-    # The diagonal is structurally zero and would win every minimum.
-    stationary = np.empty(T.shape[:2])
-    for graph, matrix in enumerate(T):
-        values, vectors = np.linalg.eig(matrix.T)
-        leading = np.real(vectors[:, np.argmin(np.abs(values - 1.0))])
-        stationary[graph] = leading / leading.sum()
-
-    return {
-        "inflow": T.sum(1),
-        "out entropy": -(T * log_T).sum(2),
-        "in entropy": -(column * np.log(np.clip(column, LOG_FLOOR, None))).sum(1),
-        "max outflow": T.max(2),
-        "min log outflow": np.where(off, log_T, np.inf).min(2),
-        "log stationary π": np.log(np.clip(stationary, LOG_FLOOR, None)),
-    }
-
-
 def latent_axes(mu, log_y, metrics, d_global):
     """Which node dimensions the graph-level panels plot, ranked two ways.
 
@@ -522,21 +493,16 @@ def latent_axes(mu, log_y, metrics, d_global):
 def latent_property(data, scaler, metrics, out):
     """Where graphs land in the latent, and whether that place tracks the property.
 
-    Two rows, because the latent is per-node while the property is per-graph.
-    The top row is every node latent, 20 per graph sharing one colour; the
-    bottom is each graph's mean over its 20 nodes, the invariant summary the
-    property actually rides on. Two bases, because rate and property-relevance
-    are different things — the highest-rate dimension need not be the one the
-    target moves along, and on the b0.01 run it is not.
-
-    A run with a global latent gets two more rows. The third puts the global
-    dimension against the best node-side axis by each criterion — rate,
-    property, sorted PC1 — all as graph means, one point per graph like the
-    global itself. The fourth is the sorted PCA with the global appended, both
-    raw and weighted by sqrt(n_nodes). Raw, it is one column beside 160 and
-    barely moves the components; weighted, it counts as much as one node
-    dimension, which fills n_nodes sorted slots. Neither weight is the right
-    one, so both are drawn and the global's loading is written on each.
+    One point per graph throughout, coloured by its decay exponent. A run with a
+    global latent gets two rows. The first puts the global dimension against
+    the best node-side axis by each criterion — rate, property, sorted PC1 —
+    all as graph means, like the global itself. The second is the sorted PCA,
+    alone and with the global appended, both raw and weighted by sqrt(n_nodes).
+    Raw, the global is one column beside 160 and barely moves the components;
+    weighted, it counts as much as one node dimension, which fills n_nodes
+    sorted slots. Neither weight is the right one, so both are drawn and the
+    global's loading is written on each. A run without one gets the sorted PCA
+    alone.
     """
     mu = data["mu"].numpy()
     log_y = scaler.inverse(data["y"].numpy())
@@ -544,29 +510,18 @@ def latent_property(data, scaler, metrics, out):
     # stays on log y, which is what the head regresses and what R² is measured
     # against, so the two are not the same scale by design.
     decay = np.exp(log_y)
+    norm = plt.Normalize(decay.min(), decay.max())
     n_graphs, n_nodes, d_latent = mu.shape
-    flat = mu.reshape(-1, d_latent)
     graph_mean = mu.mean(1)
-    rng = np.random.default_rng(0)
-
-    ranked = latent_axes(mu, log_y, metrics, data["mu_global"].shape[1])
-    kl_per_dim, live = ranked["kl_per_dim"], ranked["live"]
-    by_rate, by_property = ranked["by_rate"], ranked["by_property"]
-    correlation, enough = ranked["correlation"], ranked["enough"]
-
-    # Law of total variance over the node axis. The share is small and the
-    # information is not: this is the 3% the property rides on.
-    between = graph_mean.var(0)[live].sum()
-    within = mu.var(1).mean(0)[live].sum()
-    between_fraction = between / (between + within)
 
     mu_global = data["mu_global"].numpy()
     d_global = mu_global.shape[1]
-    n_rows = 4 if d_global else 2
-    features = node_features(data["T"].numpy())
+    ranked = latent_axes(mu, log_y, metrics, d_global)
+    by_rate, by_property = ranked["by_rate"], ranked["by_property"]
+    n_rows = 2 if d_global else 1
 
-    # Margins held in inches, so the extra rows add height instead of squeezing.
-    height = 4.4 * n_rows
+    # Margins held in inches, so the extra row adds height instead of squeezing.
+    height = 4.4 * n_rows + 0.6
     fig = plt.figure(figsize=(16.5, height))
     grid = fig.add_gridspec(
         n_rows, 4, width_ratios=[1, 1, 1, 0.038],
@@ -577,59 +532,12 @@ def latent_property(data, scaler, metrics, out):
             for row in range(n_rows)]
     bar = fig.add_subplot(grid[:, 3])
 
-    # The per-dimension number belongs on the axis it describes, not in the
-    # title: four panels of it across one row runs the titles into each other.
-    def label(dim, basis):
-        if basis == "rate":
-            return f"latent dim {dim} — {kl_per_dim[dim]:.2f} nats"
-        return f"latent dim {dim} — r {correlation[dim]:+.2f}"
-
-    def scatter(ax, points, dims, basis, colour, small):
-        """One panel of points in two latent coordinates, coloured by the property."""
-        x = points[:, dims[0]]
-        if len(dims) >= 2:
-            y, ylabel = points[:, dims[1]], label(dims[1], basis)
-        else:
-            # d_latent = 1, or a collapsed run with a single surviving unit.
-            y, ylabel = rng.uniform(-1, 1, len(x)), "jitter — one live dimension"
-        style = dict(s=7, alpha=0.55, linewidth=0) if small else dict(
-            s=34, alpha=0.95, edgecolor=SURFACE, linewidth=0.5)
-        ax.set_xlabel(label(dims[0], basis))
-        ax.set_ylabel(ylabel)
-        return ax.scatter(x, y, c=colour, cmap=PROPERTY, **style)
-
     def graph_scatter(ax, x, y, xlabel, ylabel, title):
-        ax.scatter(x, y, c=decay, cmap=PROPERTY, s=34, alpha=0.95,
+        ax.scatter(x, y, c=decay, cmap=PROPERTY, norm=norm, s=34, alpha=0.95,
                    edgecolor=SURFACE, linewidth=0.5)
         ax.set_xlabel(xlabel)
         ax.set_ylabel(ylabel)
         ax.set_title(title)
-
-    node_colour = np.repeat(decay, n_nodes)
-    property_title = (
-        "Node latents, property axes" if enough
-        else "Node latents — too few graphs to rank by property"
-    )
-
-    handle = scatter(axes[0][0], flat, by_rate[:2], "rate", node_colour, True)
-    axes[0][0].set_title("Node latents, highest-rate axes")
-    scatter(axes[0][1], flat, by_property[:2], "property", node_colour, True)
-    axes[0][1].set_title(property_title)
-    for ax in axes[0][:2]:
-        ax.annotate(
-            f"{between_fraction:.1%} of this spread is between graphs;\n"
-            f"the rest is nodes differing within one",
-            xy=(0.03, 0.97), xycoords="axes fraction", va="top",
-            fontsize=7.5, color=INK_SOFT,
-        )
-
-    scatter(axes[1][0], graph_mean, by_rate[:2], "rate", decay, False)
-    axes[1][0].set_title("Graph means, highest-rate axes")
-    scatter(axes[1][1], graph_mean, by_property[:2], "property", decay, False)
-    axes[1][1].set_title(
-        "Graph means, property axes" if enough
-        else "Graph means — too few graphs to rank by property"
-    )
 
     n_sorted = n_nodes * d_latent
     descriptor = sorted_descriptor(mu)
@@ -647,85 +555,38 @@ def latent_property(data, scaler, metrics, out):
                       f"{name} PC2", f"{title} — top 2 hold {captured:.1%}")
         return coordinates, right[:2]
 
-    sorted_axis = axes[3][0] if d_global else axes[1][2]
-    coordinates, _ = pca_panel(sorted_axis, descriptor, f"sorted-{n_sorted}",
+    sorted_row = axes[-1]
+    coordinates, _ = pca_panel(sorted_row[0], descriptor, f"sorted-{n_sorted}",
                                f"All {n_sorted}, sorted invariant")
-
-    # Whether a dimension means the same thing at every node. It does, and not
-    # by luck: the encoder applies one shared pointwise readout to every node,
-    # with no node-indexed parameters anywhere, so dim d cannot mean one thing
-    # at slot 3 and another at slot 17.
-    ax = axes[0][2]
-    table = np.array([
-        [np.corrcoef(flat[:, d], values.ravel())[0, 1] for d in live]
-        for values in features.values()
-    ])
-    image = ax.imshow(table, cmap=DIVERGING, vmin=-1.0, vmax=1.0,
-                      aspect="auto", interpolation="nearest")
-    ax.set_xticks(range(len(live)), [f"dim {d}" for d in live], fontsize=7.5)
-    ax.set_yticks(range(len(features)), list(features), fontsize=7.5)
-    ax.grid(False)
-    for row in range(table.shape[0]):
-        for column in range(table.shape[1]):
-            ax.annotate(f"{table[row, column]:+.2f}", xy=(column, row), ha="center",
-                        va="center", fontsize=7, color=INK)
-    ax.set_title("What each dimension means — same readout at every node")
-    fig.colorbar(image, ax=ax, fraction=0.046, pad=0.03).ax.tick_params(labelsize=7)
 
     if d_global:
         global_kl = np.asarray(
             metrics.get("global_kl_per_dim") or np.zeros(d_global), dtype=float
         )
         # The highest-rate global dimension. On a collapsed run it is still drawn,
-        # and its rate on the axis says it is noise.
+        # though it is then noise.
         top = int(np.argmax(global_kl))
         g = mu_global[:, top]
-        g_r = np.corrcoef(g, log_y)[0, 1] if enough and g.std() > 0 else np.nan
-        g_label = f"global dim {top} — {global_kl[top]:.2f} nats, r {g_r:+.2f}"
+        g_label = f"global dim {top}"
 
-        def r_with_g(values):
-            return np.corrcoef(g, values)[0, 1] if g.std() > 0 and values.std() > 0 else np.nan
-
-        for ax, dim, basis, criterion in (
-            (axes[2][0], by_rate[0], "rate", "highest-rate"),
-            (axes[2][1], by_property[0], "property", "top property"),
+        for ax, dim, criterion in (
+            (axes[0][0], by_rate[0], "highest-rate"),
+            (axes[0][1], by_property[0], "top property"),
         ):
-            values = graph_mean[:, dim]
-            graph_scatter(ax, g, values, g_label, label(dim, basis),
-                          f"Global against the {criterion} node dim — r {r_with_g(values):+.2f}")
-        ax = axes[2][2]
+            graph_scatter(ax, g, graph_mean[:, dim], g_label, f"latent dim {dim}",
+                          f"Global against the {criterion} node dim")
+        ax = axes[0][2]
         if coordinates is not None:
             graph_scatter(ax, g, coordinates[:, 0], g_label, f"sorted-{n_sorted} PC1",
-                          f"Global against sorted-{n_sorted} PC1 — "
-                          f"r {r_with_g(coordinates[:, 0]):+.2f}")
+                          f"Global against sorted-{n_sorted} PC1")
         else:
             ax.set_axis_off()
-
-        # The graph-level counterpart of the node table above: node features
-        # reduced over nodes, plus the relaxation time the spectrum sets.
-        ax = axes[1][2]
-        T64 = data["T"].numpy().astype(np.float64)
-        second = np.sort(np.abs(np.linalg.eigvals(T64)), axis=1)[:, -2]
-        graph = {f"mean {k}": v.mean(1) for k, v in features.items()}
-        graph.update({f"std {k}": v.std(1) for k, v in features.items()})
-        graph["log relaxation time"] = np.log(
-            -1.0 / np.log(np.clip(second, LOG_FLOOR, 1 - 1e-9)))
-        column = np.array([[r_with_g(v)] for v in graph.values()])
-        ax.imshow(column, cmap=DIVERGING, vmin=-1.0, vmax=1.0,
-                  aspect="auto", interpolation="nearest")
-        ax.set_xticks([0], [f"global dim {top}"], fontsize=7.5)
-        ax.set_yticks(range(len(graph)), list(graph), fontsize=7)
-        ax.grid(False)
-        for row, value in enumerate(column[:, 0]):
-            ax.annotate(f"{value:+.2f}", xy=(0, row), ha="center", va="center",
-                        fontsize=7, color=INK)
-        ax.set_title("What the global dim means — graph features")
 
         n_joint = n_sorted + d_global
         centred_global = mu_global - mu_global.mean(0)
         for ax, weight, name in (
-            (axes[3][1], 1.0, "unweighted"),
-            (axes[3][2], np.sqrt(n_nodes), f"global ×√{n_nodes}"),
+            (sorted_row[1], 1.0, "unweighted"),
+            (sorted_row[2], np.sqrt(n_nodes), f"global ×√{n_nodes}"),
         ):
             _, right = pca_panel(ax, np.c_[descriptor, weight * centred_global],
                                  f"sorted-{n_joint}", f"Sorted + global, {name}")
@@ -736,10 +597,11 @@ def latent_property(data, scaler, metrics, out):
                     xy=(0.03, 0.97), xycoords="axes fraction", va="top",
                     fontsize=7.5, color=INK_SOFT,
                 )
+    else:
+        for ax in sorted_row[1:]:
+            ax.set_axis_off()
 
-    # A fresh mappable on the handle's scale: the handle carries the node
-    # points' transparency, which would wash the bar out.
-    fig.colorbar(plt.cm.ScalarMappable(norm=handle.norm, cmap=PROPERTY), cax=bar).set_label(
+    fig.colorbar(plt.cm.ScalarMappable(norm=norm, cmap=PROPERTY), cax=bar).set_label(
         "decay exponent", fontsize=8, color=INK_SOFT)
     bar.tick_params(labelsize=7)
     fig.suptitle("Latent space against the property", fontsize=12, color=INK,
