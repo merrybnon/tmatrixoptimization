@@ -16,6 +16,11 @@ INK, INK_SOFT, GRID, SURFACE = "#0b0b0b", "#52514e", "#dcdbd6", "#fcfcfb"
 SEQUENTIAL = LinearSegmentedColormap.from_list(
     "blue", ["#cde2fb", "#9ec5f4", "#6da7ec", "#3987e5", "#256abf", "#104281", "#0d366b"]
 )
+# Green, light to dark, for the decay exponent, kept apart from the blue of
+# the matrices and the red/blue of signed error.
+PROPERTY = LinearSegmentedColormap.from_list(
+    "green", ["#d2f1e3", "#a3e2c6", "#6fcfa6", "#1baf7a", "#138a5f", "#0d6446", "#094a34"]
+)
 # Two poles and a neutral gray midpoint, for signed error.
 DIVERGING = LinearSegmentedColormap.from_list(
     "blue_red", ["#104281", "#6da7ec", "#f0efec", "#e87b7b", "#8f1f1f"]

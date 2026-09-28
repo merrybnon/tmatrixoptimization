@@ -67,7 +67,7 @@ from tm_ml import landscape, optimize, paths
 from tm_ml.ingest import git_commit
 from tm_ml.models import TMVAEConfig, off_diagonal
 from tm_ml.style import (
-    DIVERGING, GRID, INK, INK_SOFT, SEQUENTIAL, SURFACE, THIRD, TRAIN, VAL, style,
+    DIVERGING, GRID, INK, INK_SOFT, PROPERTY, SEQUENTIAL, SURFACE, THIRD, TRAIN, VAL, style,
 )
 
 N_EXAMPLES = 3
@@ -595,10 +595,10 @@ def latent_property(data, scaler, metrics, out):
             s=34, alpha=0.95, edgecolor=SURFACE, linewidth=0.5)
         ax.set_xlabel(label(dims[0], basis))
         ax.set_ylabel(ylabel)
-        return ax.scatter(x, y, c=colour, cmap=SEQUENTIAL, **style)
+        return ax.scatter(x, y, c=colour, cmap=PROPERTY, **style)
 
     def graph_scatter(ax, x, y, xlabel, ylabel, title):
-        ax.scatter(x, y, c=decay, cmap=SEQUENTIAL, s=34, alpha=0.95,
+        ax.scatter(x, y, c=decay, cmap=PROPERTY, s=34, alpha=0.95,
                    edgecolor=SURFACE, linewidth=0.5)
         ax.set_xlabel(xlabel)
         ax.set_ylabel(ylabel)
@@ -736,7 +736,9 @@ def latent_property(data, scaler, metrics, out):
                     fontsize=7.5, color=INK_SOFT,
                 )
 
-    fig.colorbar(handle, cax=bar).set_label(
+    # A fresh mappable on the handle's scale: the handle carries the node
+    # points' transparency, which would wash the bar out.
+    fig.colorbar(plt.cm.ScalarMappable(norm=handle.norm, cmap=PROPERTY), cax=bar).set_label(
         "decay exponent", fontsize=8, color=INK_SOFT)
     bar.tick_params(labelsize=7)
     fig.suptitle("Latent space against the property", fontsize=12, color=INK,
