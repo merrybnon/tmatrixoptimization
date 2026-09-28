@@ -367,26 +367,22 @@ def spatial_graph(data, metrics, out):
     for row in range(N_EXAMPLES):
         T = data["T"][row].numpy().astype(np.float64)
         T_hat = data["T_hat"][row].numpy().astype(np.float64)
-        true_xy, true_checks = landscape.positions(T)
-        recon_xy, recon_checks = landscape.positions(T_hat)
+        true_xy, _ = landscape.positions(T)
+        recon_xy, _ = landscape.positions(T_hat)
         recon_xy = landscape.align(recon_xy, true_xy, scale=False)
         error = np.sqrt(((recon_xy - true_xy) ** 2).sum(axis=1).mean())
         heaviest = max(T.max(), T_hat.max())
         both = np.concatenate([true_xy, recon_xy])
         limits = (min(-0.08, both.min() - 0.06), max(1.08, both.max() + 0.06))
-        for ax, matrix, xy, checks, title in (
-            (axes[row, 0], T, true_xy, true_checks, "true, positions from T"),
-            (axes[row, 1], T_hat, recon_xy, recon_checks,
+        for ax, matrix, xy, title in (
+            (axes[row, 0], T, true_xy, "true, positions from T"),
+            (axes[row, 1], T_hat, recon_xy,
              f"reconstructed, from T̂ aligned to true — RMS offset {error:.3f}"),
         ):
             draw_spatial_graph(ax, matrix, xy, heaviest, limits)
-            ax.set_title(f"{title}\ndetailed-balance asymmetry {checks['asymmetry']:.1e}, "
-                         f"non-planar share of MDS {checks['nonplanar']:.1e}", fontsize=9)
+            ax.set_title(title)
         axes[row, 0].set_ylabel(f"test example {row}\n\ny", fontsize=8)
-    fig.suptitle("Landscapes recovered from the transition matrix — widths ∝ T_ij, "
-                 "scaled to fill the unit square, so about 10% wider than generated",
-                 fontsize=12, color=INK, x=0.005, ha="left")
-    fig.tight_layout(rect=(0, 0.02, 1, 0.98))
+    fig.tight_layout(rect=(0, 0.02, 1, 1))
     footer(fig, metrics)
     fig.savefig(out)
     plt.close(fig)
