@@ -60,7 +60,6 @@ from scipy.optimize import linear_sum_assignment
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt  # noqa: E402
 from matplotlib.colors import LogNorm, TwoSlopeNorm, to_hex  # noqa: E402
-from matplotlib.patches import FancyArrowPatch  # noqa: E402
 from scipy.interpolate import RegularGridInterpolator  # noqa: E402
 
 from tm_ml import evaluate as evaluate_module
@@ -91,11 +90,6 @@ PDP_VIEW = (25, -60)
 # Below this rate a dimension is prior noise, not code.
 ACTIVE_DIM_MIN_KL = 0.01
 LOG_FLOOR = 1e-12
-# Spatial graphs: the widest edge, in points, drawn for the largest T_ij in the
-# row, every other edge in proportion and none thinner than the floor, so the
-# weak links stay visible, as in the source deck.
-EDGE_WIDTH_MAX = 4.0
-EDGE_WIDTH_MIN = 0.12
 
 
 def provenance(metrics):
@@ -365,46 +359,20 @@ def spatial_graph(data, metrics, out):
         recon_xy = landscape.align(recon_xy, true_xy, scale=False)
         error = np.sqrt(((recon_xy - true_xy) ** 2).sum(axis=1).mean())
         heaviest = max(T.max(), T_hat.max())
-        both = np.concatenate([true_xy, recon_xy])
-        limits = (min(-0.08, both.min() - 0.06), max(1.08, both.max() + 0.06))
+        bounds = landscape.limits(true_xy, recon_xy)
         for ax, matrix, xy, title in (
             (axes[row, 0], T, true_xy, "true, positions from T"),
             (axes[row, 1], T_hat, recon_xy,
              f"reconstructed, from T̂ aligned to true — RMS offset {error:.3f}"),
         ):
-            draw_spatial_graph(ax, matrix, xy, heaviest, limits)
+            landscape.draw(ax, matrix, xy, heaviest, bounds)
+            ax.set_xlabel("x")
             ax.set_title(title)
         axes[row, 0].set_ylabel(f"test example {row}\n\ny", fontsize=8)
     fig.tight_layout(rect=(0, 0.02, 1, 1))
     footer(fig, metrics)
     fig.savefig(out)
     plt.close(fig)
-
-
-def draw_spatial_graph(ax, T, xy, heaviest, limits, width_max=EDGE_WIDTH_MAX, node_size=150,
-                       label_size=6.5):
-    """Directed edges i → j as arcs of width ∝ T_ij, the two directions of a
-    pair bowing to opposite sides, under numbered nodes."""
-    n = len(xy)
-    for i in range(n):
-        for j in range(n):
-            if i == j:
-                continue
-            width = max(width_max * T[i, j] / heaviest, EDGE_WIDTH_MIN)
-            ax.add_patch(FancyArrowPatch(
-                xy[i], xy[j], connectionstyle="arc3,rad=0.2", arrowstyle="-|>",
-                mutation_scale=4.0 + 2.5 * width, linewidth=width, color=INK,
-                shrinkA=np.sqrt(node_size) / 2, shrinkB=np.sqrt(node_size) / 2, zorder=1,
-            ))
-    ax.scatter(xy[:, 0], xy[:, 1], s=node_size, color=TRAIN, edgecolor=SURFACE,
-               linewidth=1.0, zorder=2)
-    for k, (x, y) in enumerate(xy):
-        ax.text(x, y, str(k), ha="center", va="center", fontsize=label_size, color=SURFACE,
-                zorder=3)
-    ax.set_xlim(*limits)
-    ax.set_ylim(*limits)
-    ax.set_aspect("equal")
-    ax.set_xlabel("x")
 
 
 def latent(metrics, out):
@@ -1468,16 +1436,14 @@ def draw_spatial_grid(decoded, titles, row_labels, anchor, title, metrics, out):
         for column in list(range(anchor + 1, columns)) + list(range(anchor - 1, -1, -1)):
             neighbour = column - 1 if column > anchor else column + 1
             layouts[column] = landscape.align(layouts[column], layouts[neighbour], scale=False)
-        every = np.concatenate(layouts)
-        limits = (min(-0.08, every.min() - 0.06), max(1.08, every.max() + 0.06))
+        bounds = landscape.limits(*layouts)
         heaviest = max(T.max() for T in matrices)
         for column in range(columns):
             ax = fig.add_subplot(grid[row, column])
-            draw_spatial_graph(ax, matrices[column], layouts[column], heaviest, limits,
-                               width_max=2.2, node_size=45, label_size=4.5)
+            landscape.draw(ax, matrices[column], layouts[column], heaviest, bounds,
+                           width_max=2.2, node_size=45, label_size=4.5)
             ax.set_xticks([])
             ax.set_yticks([])
-            ax.set_xlabel("")
             ax.grid(False)
             ax.set_title(titles[row][column], fontsize=9)
             if column == 0:
