@@ -10,6 +10,9 @@ so a figure is self-describing wherever it ends up:
 - ``predictions.png``     the property, predicted against true, on the test split
 - ``reconstruction.png``  example matrices, and error against the size of the
                           true entry, which is where forward KL is blind
+- ``spatial_graph.png``   example landscapes in space, positions recovered from
+                          T and from T̂ by inverting the generator, the
+                          reconstruction aligned to the truth
 - ``latent.png``          how many latent dimensions are actually carrying code
 - ``latent_property.png`` where graphs sit in the latent, coloured by the
                           property, at node and graph level and in two bases
@@ -55,11 +58,11 @@ from scipy.optimize import linear_sum_assignment
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt  # noqa: E402
 from matplotlib.colors import LogNorm, TwoSlopeNorm, to_hex  # noqa: E402
-from matplotlib.patches import Rectangle  # noqa: E402
+from matplotlib.patches import FancyArrowPatch, Rectangle  # noqa: E402
 from scipy.interpolate import RegularGridInterpolator  # noqa: E402
 
 from tm_ml import evaluate as evaluate_module
-from tm_ml import optimize, paths
+from tm_ml import landscape, optimize, paths
 from tm_ml.ingest import git_commit
 from tm_ml.models import TMVAEConfig, off_diagonal
 from tm_ml.style import (
@@ -86,6 +89,11 @@ PDP_VIEW = (25, -60)
 # Below this rate a dimension is prior noise, not code.
 ACTIVE_DIM_MIN_KL = 0.01
 LOG_FLOOR = 1e-12
+# Spatial graphs: the widest edge, in points, drawn for the largest T_ij in the
+# row, every other edge in proportion and none thinner than the floor, so the
+# weak links stay visible, as in the source deck.
+EDGE_WIDTH_MAX = 4.0
+EDGE_WIDTH_MIN = 0.12
 
 
 def provenance(metrics):
@@ -344,6 +352,69 @@ def reconstruction(data, metrics, out):
     footer(fig, metrics)
     fig.savefig(out)
     plt.close(fig)
+
+
+def spatial_graph(data, metrics, out):
+    """Example landscapes laid out in space, from T and from T̂.
+
+    Positions come from inverting the generator, `landscape.positions`. The
+    reconstruction keeps the input's node labels, so its layout is aligned onto
+    the true one by Procrustes on those labels, which settles the rotation,
+    reflection and shift that T alone leaves open. Both are scaled to fill the
+    unit square first, so the alignment does not fit a scale of its own.
+    """
+    fig, axes = plt.subplots(N_EXAMPLES, 2, figsize=(11.0, 5.4 * N_EXAMPLES))
+    for row in range(N_EXAMPLES):
+        T = data["T"][row].numpy().astype(np.float64)
+        T_hat = data["T_hat"][row].numpy().astype(np.float64)
+        true_xy, true_checks = landscape.positions(T)
+        recon_xy, recon_checks = landscape.positions(T_hat)
+        recon_xy = landscape.align(recon_xy, true_xy, scale=False)
+        error = np.sqrt(((recon_xy - true_xy) ** 2).sum(axis=1).mean())
+        heaviest = max(T.max(), T_hat.max())
+        both = np.concatenate([true_xy, recon_xy])
+        limits = (min(-0.08, both.min() - 0.06), max(1.08, both.max() + 0.06))
+        for ax, matrix, xy, checks, title in (
+            (axes[row, 0], T, true_xy, true_checks, "true, positions from T"),
+            (axes[row, 1], T_hat, recon_xy, recon_checks,
+             f"reconstructed, from T̂ aligned to true — RMS offset {error:.3f}"),
+        ):
+            draw_spatial_graph(ax, matrix, xy, heaviest, limits)
+            ax.set_title(f"{title}\ndetailed-balance asymmetry {checks['asymmetry']:.1e}, "
+                         f"non-planar share of MDS {checks['nonplanar']:.1e}", fontsize=9)
+        axes[row, 0].set_ylabel(f"test example {row}\n\ny", fontsize=8)
+    fig.suptitle("Landscapes recovered from the transition matrix — widths ∝ T_ij, "
+                 "scaled to fill the unit square, so about 10% wider than generated",
+                 fontsize=12, color=INK, x=0.005, ha="left")
+    fig.tight_layout(rect=(0, 0.02, 1, 0.98))
+    footer(fig, metrics)
+    fig.savefig(out)
+    plt.close(fig)
+
+
+def draw_spatial_graph(ax, T, xy, heaviest, limits):
+    """Directed edges i → j as arcs of width ∝ T_ij, the two directions of a
+    pair bowing to opposite sides, under numbered nodes."""
+    n = len(xy)
+    for i in range(n):
+        for j in range(n):
+            if i == j:
+                continue
+            width = max(EDGE_WIDTH_MAX * T[i, j] / heaviest, EDGE_WIDTH_MIN)
+            ax.add_patch(FancyArrowPatch(
+                xy[i], xy[j], connectionstyle="arc3,rad=0.2", arrowstyle="-|>",
+                mutation_scale=4.0 + 2.5 * width, linewidth=width, color=INK,
+                shrinkA=6, shrinkB=6, zorder=1,
+            ))
+    ax.scatter(xy[:, 0], xy[:, 1], s=150, color=TRAIN, edgecolor=SURFACE,
+               linewidth=1.0, zorder=2)
+    for k, (x, y) in enumerate(xy):
+        ax.text(x, y, str(k), ha="center", va="center", fontsize=6.5, color=SURFACE,
+                zorder=3)
+    ax.set_xlim(*limits)
+    ax.set_ylim(*limits)
+    ax.set_aspect("equal")
+    ax.set_xlabel("x")
 
 
 def latent(metrics, out):
@@ -1409,6 +1480,7 @@ def visualize(run, num_threads=1):
         "training_curve": lambda p: training_curve(history, metrics, p),
         "predictions": lambda p: predictions(data, scaler, metrics, p),
         "reconstruction": lambda p: reconstruction(data, metrics, p),
+        "spatial_graph": lambda p: spatial_graph(data, metrics, p),
         "latent": lambda p: latent(metrics, p),
         "latent_property": lambda p: latent_property(data, scaler, metrics, p),
         "latent_property_3D": lambda p: latent_property_3D(pdp(), metrics, p),

@@ -76,8 +76,8 @@ TRAIN_META = "train_meta.json"
 FIGURES = "figures"
 TRAVERSALS = "interpolation_and_traversals"
 OPTIMIZATION = "optimization"
-DIAGNOSTIC_FIGURES = ("training_curve", "predictions", "reconstruction", "latent",
-                      "latent_property", "latent_property_3D")
+DIAGNOSTIC_FIGURES = ("training_curve", "predictions", "reconstruction", "spatial_graph",
+                      "latent", "latent_property", "latent_property_3D")
 # Also written as a plotly page beside the PNG, `<name>.html`.
 INTERACTIVE_FIGURES = ("latent_property_3D",)
 TRAVERSAL_AXES = ("gbd", "PC1", "PC2")
