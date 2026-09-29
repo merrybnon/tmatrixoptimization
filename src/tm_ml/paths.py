@@ -122,6 +122,8 @@ ABBREV = {
     "pair_hidden": "ph",
     "predictor_hidden": "prh",
     "pooling": "p",
+    "node_norm": "nnorm",
+    "edge_norm": "enorm",
     "dropout": "do",
     "beta": "b",
     "gamma": "g",
@@ -178,6 +180,9 @@ NAME_BASELINE = {
         # 1.0 is the unweighted sum the loss used before the field existed.
         "lambda_recon": 1.0,
         "lambda_recon_warmup_epochs": 0,
+        # Added 2026-09-28. LayerNorm is what every earlier run used.
+        "node_norm": "layernorm",
+        "edge_norm": "layernorm",
     },
 }
 

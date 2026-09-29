@@ -38,11 +38,14 @@ def param_counts(state_dict):
 
     Norms are folded into the stack they close, so the diagram's encoder and
     decoder boxes carry everything between input and latent, and latent and
-    pair function.
+    pair function. `Standardize`'s fitted mean and std are buffers, not
+    parameters, and are skipped.
     """
     fold = {"encoder_norm": "encoder", "decoder_norm": "decoder"}
     counts = Counter()
     for key, tensor in state_dict.items():
+        if key.endswith((".mean", ".std")):
+            continue
         module = key.split(".")[0]
         counts[fold.get(module, module)] += tensor.numel()
     return counts
@@ -66,6 +69,7 @@ def diagram(m, cfg, counts, run):
     """The Mermaid source for model config `m`, run config `cfg`, param `counts`."""
     n, h, g = m.n_nodes, m.d_model, m.d_global
     dropout = f", dropout {m.dropout:g}" if m.dropout else ""
+    norm_label = {"layernorm": "LayerNorm", "fixed": "fixed standardize"}
     layer = (f"{m.n_heads} heads × {h // m.n_heads} dims"
              f"<br/>FFN {h} → {m.d_ff} → {h}, pre-norm, residual{dropout}")
     total = sum(counts.values())
@@ -102,9 +106,9 @@ def diagram(m, cfg, counts, run):
         'col sum, row and col entropy<br/>row and col max"]',
         f'    EF["edge features · {n}×{n}×{N_EDGE_FEATURES}<br/>'
         'T_ij, T_ji, log T_ij, log T_ji, is_self"]',
-        f'    NI["LayerNorm → Linear {N_NODE_FEATURES} → {h}'
+        f'    NI["{norm_label[m.node_norm]} → Linear {N_NODE_FEATURES} → {h}'
         f'<br/>{_k(counts["node_in"])} params"]',
-        f'    EB["edge bias MLP {N_EDGE_FEATURES} → {m.edge_hidden} → {m.n_heads}'
+        f'    EB["{norm_label[m.edge_norm]} → edge bias MLP {N_EDGE_FEATURES} → {m.edge_hidden} → {m.n_heads}'
         f'<br/>one bias b_ij per head · {_k(counts["edge_in"])} params"]',
         f'    EL["{m.encoder_layers} × attention layer<br/>'
         f'softmax_j( q_i·k_j / √d + b_ij )<br/>{layer}<br/>'

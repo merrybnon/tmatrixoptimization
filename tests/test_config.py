@@ -65,6 +65,8 @@ def test_sweeping_a_runtime_field_is_refused():
 @pytest.mark.parametrize("spec,match", [
     ({"d_model": 64, "n_heads": 7}, "not divisible"),
     ({"pooling": "softmax"}, "unknown pooling"),
+    ({"edge_norm": "batchnorm"}, "unknown edge_norm"),
+    ({"node_norm": "rms"}, "unknown node_norm"),
     ({"val_frac": 0.6, "test_frac": 0.5}, "leave a training split"),
     ({"beta_warmup_epochs": 50, "epochs": 10}, "beta_warmup_epochs must be between"),
     ({"epochs": 0}, "at least 1"),
