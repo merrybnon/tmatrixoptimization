@@ -40,6 +40,11 @@ and into ``figures/optimization/``:
 - ``minimize_g#.png``     the same descending
 - ``*_g#_unreg.png``      either with no penalty
 
+and into ``figures/optimization/spatial/``:
+
+- the same figures, each decoded matrix drawn as the landscape it implies,
+  as in ``spatial_graph.png``
+
 Reads `history.csv` and `metrics.json`, and re-runs the model for the examples,
 so it needs `evaluate.py` to have gone first.
 """
@@ -1101,7 +1106,8 @@ def decay_text(log_y):
     return f"10^{exponent:.1f}" if abs(exponent) < 1e4 else f"10^({exponent:.3g})"
 
 
-def optimization(model, data, scaler, metrics, device, graph, lam, sense, out):
+def optimization(model, data, scaler, metrics, device, graph, lam, sense, out, spatial=False,
+                 search=optimize.search):
     """BFGS from one test graph: its decoded path, then the path in latent space.
 
     The top row is decoded matrices at selected iterates, drawn like the
@@ -1112,6 +1118,9 @@ def optimization(model, data, scaler, metrics, device, graph, lam, sense, out):
     scale fitted to the data, so a path that leaves the data's range clips at
     the top colour, or the bottom one when minimizing, and its final value is
     written on the panel instead. ``sense`` is +1 to ascend, −1 to descend.
+
+    ``spatial`` draws each decoded matrix as a landscape, aligned outward from
+    the start. ``search`` runs the BFGS, so the two views can share one run.
     """
     mu = data["mu"].numpy()
     mu_global = data["mu_global"].numpy()
@@ -1120,7 +1129,7 @@ def optimization(model, data, scaler, metrics, device, graph, lam, sense, out):
         return placeholder(metrics, out, f"Optimization — no test example {graph}")
     decay = np.exp(log_y)
 
-    path = optimize.search(model, scaler, mu[graph], mu_global[graph], lam, sense)
+    path = search(model, scaler, mu[graph], mu_global[graph], lam, sense)
     columns = path_columns(path.log_y_hat, N_OPTIMIZATION_COLUMNS)
     decoded, _ = decode_batch(model, device, scaler, path.z[columns], path.z_global[columns])
     views = graph_views(mu, mu_global, log_y, metrics)
@@ -1135,9 +1144,22 @@ def optimization(model, data, scaler, metrics, device, graph, lam, sense, out):
     top = outer[0].subgridspec(1, N_OPTIMIZATION_COLUMNS + 1,
                                width_ratios=[1] * N_OPTIMIZATION_COLUMNS + [0.05], wspace=0.12)
     floor = reconstruction_floor(data, N_EXAMPLES)
+    if spatial:
+        # As `draw_spatial_grid`: each layout onto its aligned neighbour, from the start.
+        matrices = [np.nan_to_num(10.0 ** m.astype(np.float64)) for m in decoded]
+        layouts = [landscape.positions(T)[0] for T in matrices]
+        for column in range(1, len(layouts)):
+            layouts[column] = landscape.align(layouts[column], layouts[column - 1], scale=False)
+        bounds = landscape.limits(*layouts)
+        heaviest = max(T.max() for T in matrices)
     for column, (k, matrix) in enumerate(zip(columns, decoded)):
         ax = fig.add_subplot(top[column])
-        image = ax.imshow(matrix, cmap=SEQUENTIAL, vmin=floor, vmax=0.0, interpolation="nearest")
+        if spatial:
+            landscape.draw(ax, matrices[column], layouts[column], heaviest, bounds,
+                           width_max=2.2, node_size=45, label_size=4.5)
+        else:
+            image = ax.imshow(matrix, cmap=SEQUENTIAL, vmin=floor, vmax=0.0,
+                              interpolation="nearest")
         ax.set_xticks([])
         ax.set_yticks([])
         ax.grid(False)
@@ -1147,9 +1169,10 @@ def optimization(model, data, scaler, metrics, device, graph, lam, sense, out):
         if k == 0:
             text += f"  ·  true {decay[graph]:.0f}"
         ax.set_title(text, fontsize=9)
-    bar = fig.colorbar(image, cax=fig.add_subplot(top[N_OPTIMIZATION_COLUMNS]))
-    bar.set_label("log₁₀ T̂", fontsize=8, color=INK_SOFT)
-    bar.ax.tick_params(labelsize=7)
+    if not spatial:
+        bar = fig.colorbar(image, cax=fig.add_subplot(top[N_OPTIMIZATION_COLUMNS]))
+        bar.set_label("log₁₀ T̂", fontsize=8, color=INK_SOFT)
+        bar.ax.tick_params(labelsize=7)
 
     lower = outer[1].subgridspec(n_rows, 5, width_ratios=[1, 1, 1, 1, 0.05],
                                  wspace=0.32, hspace=0.42)
@@ -1209,7 +1232,8 @@ def optimization(model, data, scaler, metrics, device, graph, lam, sense, out):
     sign, direction = ("−", "ascent") if sense > 0 else ("+", "descent")
     objective = (f"f(x) = {sign}log ŷ(x), unregularized" if lam == 0
                  else f"f(x) = {sign}log ŷ(x) + (λ/2)·‖x − x₀‖², λ = {lam:g}")
-    fig.suptitle(f"BFGS latent {direction} from test example {graph}: {objective}",
+    edges = "   |   edge width ∝ T̂_ij" if spatial else ""
+    fig.suptitle(f"BFGS latent {direction} from test example {graph}: {objective}{edges}",
                  fontsize=12, color=INK, x=0.005, ha="left")
     footer(fig, metrics)
     fig.savefig(out)
@@ -1334,7 +1358,11 @@ def visualize(run, num_threads=1):
     traversals = figures / paths.TRAVERSALS
     optimizations = figures / paths.OPTIMIZATION
     traversals.mkdir(parents=True, exist_ok=True)
-    optimizations.mkdir(exist_ok=True)
+    (optimizations / paths.OPTIMIZATION_SPATIAL).mkdir(parents=True, exist_ok=True)
+    # Each BFGS run is drawn twice, as matrices and as landscapes; run it once.
+    # Keyed by (graph, λ, sense), which fixes the run; the arrays cannot be hashed.
+    search = functools.cache(lambda graph, lam, sense: optimize.search(
+        model, scaler, data["mu"][graph].numpy(), data["mu_global"][graph].numpy(), lam, sense))
     diagnostics = {
         "training_curve": lambda p: training_curve(history, metrics, p),
         "predictions": lambda p: predictions(data, scaler, metrics, p),
@@ -1364,9 +1392,12 @@ def visualize(run, num_threads=1):
               lambda p, n=name, v=view: interpolations[n](p, v == paths.SPATIAL))
              for name in paths.INTERPOLATIONS for view in paths.PATH_VIEWS]
     jobs += [
-        (optimizations / f"{sense}_g{graph}{variant}.png",
-         lambda p, g=graph, lam=OPTIMIZATION_LAMBDA[variant], s=OPTIMIZATION_SENSE[sense]:
-             optimization(model, data, scaler, metrics, device, g, lam, s, p))
+        (optimizations / folder / f"{sense}_g{graph}{variant}.png",
+         lambda p, g=graph, lam=OPTIMIZATION_LAMBDA[variant], s=OPTIMIZATION_SENSE[sense],
+                spatial=bool(folder):
+             optimization(model, data, scaler, metrics, device, g, lam, s, p, spatial,
+                          lambda *_, g=g, lam=lam, s=s: search(g, lam, s)))
+        for folder in ("", paths.OPTIMIZATION_SPATIAL)
         for sense in paths.OPTIMIZATION_SENSES
         for graph in paths.OPTIMIZATION_GRAPHS for variant in paths.OPTIMIZATION_VARIANTS
     ]

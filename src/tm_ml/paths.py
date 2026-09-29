@@ -76,6 +76,9 @@ TRAIN_META = "train_meta.json"
 FIGURES = "figures"
 TRAVERSALS = "interpolation_and_traversals"
 OPTIMIZATION = "optimization"
+# The optimization figures again, one level deeper, with the decoded matrices
+# drawn as the landscapes they imply.
+OPTIMIZATION_SPATIAL = "spatial"
 DIAGNOSTIC_FIGURES = ("training_curve", "predictions", "reconstruction", "spatial_graph",
                       "latent", "latent_property", "latent_property_3D")
 # Also written as a plotly page beside the PNG, `<name>.html`.
