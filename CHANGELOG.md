@@ -28,6 +28,8 @@ All notable changes to this project will be documented in this file. The format 
 - `src/tm_ml/data_figures.py`: `example_matrices_spatial.png`.
 - `src/tm_ml/latent_diagnostics.py`: the aggregate posterior against the prior, by Monte Carlo over the exact encoder mixture. Per latent block: the per-example KL split into mutual information and KL(q(z) ‖ p(z)), KL(p(z) ‖ q(z)), the share of prior samples in holes, and per-dimension moments. Run by hand; writes `latent_diagnostics_<split>.json` into the run directory.
 - `docs/notes/2026-9-11 The ML Problem.pptx`: the slides describing how the matrices are generated.
+- `src/tm_ml/models.py`, `config.py`, `paths.py`, `train.py`: `node_norm` and `edge_norm`, `layernorm` (default, the old behaviour, same state dict keys) or `fixed`, a `Standardize` module whose per-feature mean and std are fitted on the training split's matrices by `TMVAE.fit_input_stats` and saved as buffers. Edge constants come from off-diagonal pairs only, and the diagonal's four value features are zeroed after standardizing. Unfitted constants are nan, so a model that skipped fitting fails the first-step check instead of running as the identity. Abbreviated `nnorm` and `enorm`; `benchmarks.py` gains both columns and `architecture.py` labels the norm.
+- `config/sweeps/input_norm.yaml`: node × edge norm × three seeds at the dg1 settings. Fixed edges cut recon 3.1× and log_recon 2.3× with 25 fewer node nats and no change in R²; fixed nodes add +0.03 R² paired on each seed but collapse the global in two of three.
 
 ### Removed
 

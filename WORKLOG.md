@@ -530,3 +530,30 @@ Settled a colour split: transition matrices blue, the decay exponent green, sign
 ## 2026-09-28 — the aggregate posterior against the prior
 
 `latent_diagnostics.py` estimates KL(q(z) ‖ p(z)) and KL(p(z) ‖ q(z)) against the exact mixture q(z), not the Gaussian moment-match in `metrics.json`. On the dg1 seed-1 run, train split, node latents pooled over graphs and nodes: each node dimension has mean ≈ 0 and variance ≈ 1, yet KL(q ‖ p) is 1.35 nats against a moment-matched 0.03, and 46% of N(0, I) samples land where q/p < 0.1. The global is centred at 0.48 with variance 0.51 and σ ≈ 0.04 per graph. So the per-example KL, 9.0 of whose 10.4 nats are mutual information, matches scale but not shape, and sampling the prior mostly misses the region the decoder was trained on.
+
+## 2026-09-28 — fixed standardization of the input features
+
+The per-pair LayerNorm on the five edge features is nearly scale-invariant in the two logs: a symmetric pair at 1e-2 and one at 1e-8 normalize to within 0.003 of each other, and the diagonal lands beside them with is_self drowned. `node_norm` and `edge_norm` now take `fixed`, per-feature standardization against constants fitted on the training split, off-diagonal pairs only for edges, with the diagonal's four value features set to 0 after. `config/sweeps/input_norm.yaml` crosses the two at the dg1 settings of `global_dims.yaml`, three seeds, 12 runs in 34 min on two cards. The layernorm × layernorm control retrained bit-identically to the `global_latent` dg1 runs, same best epoch and val score on every seed.
+
+Mean ± sd over the three seeds, each seed its own split, test split:
+
+| node / edge | R² | recon | log_recon | weakest-decile log err | KL node | KL global | max\|r\| b ~ log T |
+|---|---|---|---|---|---|---|---|
+| layernorm / layernorm | 0.782 ± 0.059 | 0.827 ± 0.074 | 0.423 ± 0.012 | 0.533 ± 0.044 | 207.7 | 2.90 ± 0.22 | 0.45 |
+| fixed / layernorm | 0.817 ± 0.061 | 0.690 ± 0.138 | 0.373 ± 0.025 | 0.500 ± 0.049 | 218.6 | 1.07 ± 1.47 | 0.45 |
+| layernorm / fixed | 0.772 ± 0.055 | 0.266 ± 0.067 | 0.181 ± 0.011 | 0.272 ± 0.020 | 183.2 | 3.01 ± 0.18 | 0.96 |
+| fixed / fixed | 0.781 ± 0.051 | 0.252 ± 0.075 | 0.176 ± 0.014 | 0.294 ± 0.020 | 183.4 | 1.03 ± 1.68 | 0.99 |
+
+The last column is the max over the 8 heads of |corr(b_ij, log T_ij)| over test off-diagonal pairs with T_ij < 1e-3, per run, then averaged over seeds.
+
+### Edge norm: reconstruction 3× better on fewer nats
+
+Fixed edges cut recon 3.1× and log_recon 2.3× and halve the weakest-decile log error, on every seed, while the node KL falls by 25 nats. The mechanism is the one predicted: within the small-entry regime the attention bias goes from |r| 0.45 with log T to 0.96, so magnitude that LayerNorm hid now reaches the encoder through the bias, and the latent no longer has to pay to carry it. R² does not move: paired by seed, −0.006, −0.009, −0.016. Whatever limits the property is not the reconstruction.
+
+### Node norm: a small R² gain, and the global goes
+
+Fixed nodes with LayerNorm edges raise R² on all three seeds, +0.032, +0.029, +0.043 paired, which is under one seed sd of the cell mean, so it is suggestive and not settled. The global slot collapses in two of three seeds (0.02 and 0.44 nats against ≈ 3 for the control), and in two of three of fixed / fixed as well. The global's axis in `global_dims` was node heterogeneity, and a per-node LayerNorm on the node features removes each node's absolute level of entropy and flow, which is what evenness is made of. With that level kept, the node latents can plausibly carry the graph-level signal themselves and the global becomes redundant. Untested; the probe from 09-22 (graph-mean node latents → log y) would check it. Combined with fixed edges the R² gain does not survive: +0.017, +0.011, −0.034.
+
+### Next steps
+- Make `edge_norm: fixed` the setting for subsequent sweeps. It is the largest reconstruction gain on record and costs nothing on the property.
+- More seeds on `node_norm` before adopting it, and the graph-mean probe to see whether the global collapse is relocation, as on 09-22, or loss.
