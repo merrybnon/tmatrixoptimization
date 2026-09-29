@@ -26,6 +26,7 @@ All notable changes to this project will be documented in this file. The format 
 - `src/tm_ml/landscape.py`: node positions from a transition matrix, inverting the generator through the stationary distribution and classical MDS; `align` (Procrustes on node labels), `to_unit_square`, and `draw`, the deck's spatial graph with blue nodes and edge width ∝ T_ij. Torch-free. `tests/test_landscape.py`.
 - `src/tm_ml/visualize.py`, `paths.py`: `spatial_graph.png`, three test examples laid out from T and from T̂ aligned to it; and a `_spatial` twin of each traversal and of the interpolation, each row aligned outward from its reconstruction.
 - `src/tm_ml/data_figures.py`: `example_matrices_spatial.png`.
+- `src/tm_ml/latent_diagnostics.py`: the aggregate posterior against the prior, by Monte Carlo over the exact encoder mixture. Per latent block: the per-example KL split into mutual information and KL(q(z) ‖ p(z)), KL(p(z) ‖ q(z)), the share of prior samples in holes, and per-dimension moments. Run by hand; writes `latent_diagnostics_<split>.json` into the run directory.
 - `docs/notes/2026-9-11 The ML Problem.pptx`: the slides describing how the matrices are generated.
 
 ### Removed
