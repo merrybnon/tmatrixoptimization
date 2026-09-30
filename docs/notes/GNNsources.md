@@ -27,7 +27,7 @@ If you read only one thing, read Joshi.
 
 ## The scheme we are copying
 
-**Gómez-Bombarelli et al., *Automatic Chemical Design Using a Data-Driven Continuous Representation of Molecules*, ACS Central Science 4(2), 2018.** The paper `project_vision.md` is based on. A VAE maps molecules to a continuous latent space, an MLP trained jointly on that latent predicts a property, and gradient ascent on the MLP's output moves through latent space toward better molecules, which are then decoded. Our substitution is transition matrices for molecules and a heterozygosity decay exponent for the chemical property.
+**Gómez-Bombarelli et al., *Automatic Chemical Design Using a Data-Driven Continuous Representation of Molecules*, ACS Central Science 4(2), 2018.** The paper `project_vision.md` is based on. A VAE maps molecules to a continuous latent space, an MLP trained jointly on that latent predicts a property, and gradient ascent on the MLP's output moves through latent space toward better molecules, which are then decoded. Our substitution is transition matrices for molecules and a heterozygosity-based effective population for the chemical property.
 
 **Jin et al., *Junction Tree Variational Autoencoder for Molecular Graph Generation*, ICML 2018.** The follow-up that exists because the 2018 decoder often emitted invalid molecules, so latent optimization drifted into regions that decoded to nothing. Its fix is to make validity structural rather than penalized. Masked row softmax is the same move for us, and the failure mode it avoids is worth knowing about.
 

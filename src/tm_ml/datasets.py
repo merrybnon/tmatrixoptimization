@@ -6,8 +6,8 @@ in memory as one tensor and there is no lazy loading to get wrong.
 
 This module owns the target transform, which is not the model's business:
 
-- the **log** is always taken. The decay exponent runs 48.8 to 2041.6 with skew
-  1.86, and squared error on the log is a lognormal likelihood on the exponent,
+- the **log** is always taken. The effective population runs 48.8 to 2041.6 with skew
+  1.86, and squared error on the log is a lognormal likelihood on the effective population,
   which is relative error — being off by 50 on a target of 2000 should not cost
   what being off by 50 on a target of 60 does.
 - **standardizing** is optional and, when on, is fitted on the training split
@@ -50,7 +50,7 @@ class TargetScaler:
         return (log_y - self.mean) / self.std
 
     def inverse(self, scaled):
-        """Back to log y. Compose with exp for the decay exponent itself."""
+        """Back to log y. Compose with exp for the effective population itself."""
         return scaled * self.std + self.mean
 
     def as_dict(self):

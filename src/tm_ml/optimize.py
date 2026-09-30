@@ -1,4 +1,4 @@
-"""Push the predicted decay exponent up or down in latent space, one graph at a time, with BFGS.
+"""Push the predicted effective population up or down in latent space, one graph at a time, with BFGS.
 
     pixi run -e ml python -m tm_ml.optimize --run <run> --lam 0 0.3 1 3 [--minimize]
 
@@ -73,7 +73,7 @@ def objective(model64, scaler, n_nodes, d_latent, lam, anchor, sense=1):
     """``x -> (f, ∇f)`` in float64 numpy, the form ``minimize(jac=True)`` takes.
 
     The predictor emits standardized log y; undoing the scaler is monotone, so
-    it moves no optimum, but it puts f in e-folds of the decay exponent, which
+    it moves no optimum, but it puts f in e-folds of the effective population, which
     is what gives λ units. ``anchor`` is x₀, where the penalty is zero;
     ``sense`` is +1 to maximize ŷ, −1 to minimize it.
     """
@@ -95,7 +95,7 @@ def objective(model64, scaler, n_nodes, d_latent, lam, anchor, sense=1):
 def search(model, scaler, mu, mu_global, lam, sense=1, maxiter=200, gtol=1e-5):
     """BFGS from one graph's encoding ``(mu, mu_global)``, both numpy, unbatched.
 
-    ``sense`` is +1 to maximize the predicted exponent, −1 to minimize it.
+    ``sense`` is +1 to maximize the predicted effective population, −1 to minimize it.
     """
     n_nodes, d_latent = mu.shape
     model64 = float64_copy(model)
@@ -141,7 +141,7 @@ def report(search, graph, true_decay):
     moved = np.linalg.norm(x - x[0], axis=1)
     norm = np.linalg.norm(x, axis=1)
     direction = "maximizing" if search.sense > 0 else "minimizing"
-    print(f"\ntest graph {graph}, true decay exponent {true_decay:.1f}, {direction}, "
+    print(f"\ntest graph {graph}, true effective population {true_decay:.1f}, {direction}, "
           f"λ = {search.lam:g}")
     print(f"  {'iter':>4}  {'ŷ':>10}  {'log ŷ':>7}  {'f':>9}  {'‖x‖':>7}  "
           f"{'‖x − x₀‖':>9}  {'‖∇f‖':>9}")
@@ -175,7 +175,7 @@ def main():
     parser.add_argument("--graphs", type=int, default=N_GRAPHS,
                         help="how many test graphs, from the first")
     parser.add_argument("--minimize", action="store_true",
-                        help="drive the predicted exponent down instead of up")
+                        help="drive the predicted effective population down instead of up")
     parser.add_argument("--maxiter", type=int, default=200)
     args = parser.parse_args()
 

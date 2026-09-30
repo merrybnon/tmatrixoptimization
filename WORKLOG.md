@@ -364,7 +364,7 @@ The same thing in every run, correlations over the 1000 graphs with each run's s
 | std over nodes of min log outflow | −0.77 … −0.88 |
 | std over nodes of log stationary π | −0.76 … −0.86 |
 | mean over nodes of log stationary π | +0.72 … +0.84 |
-| log decay exponent | +0.63 … +0.85 |
+| log effective population | +0.63 … +0.85 |
 | log relaxation time from abs(λ₂) | −0.69 … −0.80 |
 | mean inflow | ≈ 0 |
 
@@ -382,7 +382,7 @@ One trap for reading the figures: a collapsed global still has a posterior mean 
 
 ## 2026-09-23 — latent traversals
 
-Figures now live in `results/<run>/figures/`, and `visualize` adds three traversals in `figures/interpolation_and_traversals/`: the highest-rate global dimension and sorted-160 PC1 and PC2. Each is 3 test graphs × 7 steps, t ∈ {−3 … +3}·σ from the graph's own encoding, where σ is the spread of the axis coordinate over the 100 test graphs. The centre column is the reconstruction, and every matrix carries its predicted decay exponent. A PC or latent dimension has no natural sign, so each axis is oriented so that +t raises log y across the test graphs.
+Figures now live in `results/<run>/figures/`, and `visualize` adds three traversals in `figures/interpolation_and_traversals/`: the highest-rate global dimension and sorted-160 PC1 and PC2. Each is 3 test graphs × 7 steps, t ∈ {−3 … +3}·σ from the graph's own encoding, where σ is the spread of the axis coordinate over the 100 test graphs. The centre column is the reconstruction, and every matrix carries its predicted effective population. A PC or latent dimension has no natural sign, so each axis is oriented so that +t raises log y across the test graphs.
 
 PC1 and PC2 are sorted-160 rather than raw-160 because node labels are arbitrary. Over exchangeable slots the raw covariance has only two kinds of eigenvector: a uniform shift, which is just the graph-mean PCs broadcast to every node, and slot contrasts, each degenerate 19-fold in expectation, so which one comes out is sampling noise. A step along a sorted PC is decoded by shifting the sorted values and putting each rank back on the node that held it.
 
@@ -404,7 +404,7 @@ On the dg1 seed-1 run matching roughly halves the mean paired node distance (2.8
 
 **Unregularized, the ascent runs away.** Far from the data the GELU predictor is linear in x, so f = −log ŷ has a constant slope and no bottom. Each BFGS step doubles ‖x‖. The line search ends in "precision loss" within 2–22 iterations, the H⁻¹ estimate picks up negative eigenvalues, and on dg4 seed 0 the 51st iterate overflowed float64. Paths are now cut at the first non-finite iterate. The endpoints decode to flattened matrices, with max/min between 1.7× and 10⁴× against about 10¹⁰ in the data, but not to the uniform matrix.
 
-**Prior penalty, f = −log ŷ + (λ/2)·‖x‖².** At λ = 1 all 36 paths (12 runs × 3 graphs) end at the same point, which decodes to exactly the uniform matrix. This is not an optimum of the decay exponent, and ŷ there is only 281; graph 2 went down, from 649. Two things produce it:
+**Prior penalty, f = −log ŷ + (λ/2)·‖x‖².** At λ = 1 all 36 paths (12 runs × 3 graphs) end at the same point, which decodes to exactly the uniform matrix. This is not an optimum of the effective population, and ŷ there is only 281; graph 2 went down, from 649. Two things produce it:
 
 - The penalty is about 40 nats at the start, and the whole data range of log ŷ spans only 3.7, so BFGS mostly shrinks x.
 - The cheapest way to shrink x is to make the 20 node latents identical: their spread falls to about 1e-8, against 0.50–0.69 for test graphs. With identical nodes, the equivariant decoder cannot tell them apart and must emit the uniform matrix.
@@ -463,10 +463,10 @@ Two hand-built matrices through the dg1 seed-1 run (`global_latent/TMVAE_b0p01-b
 
 **Uniform** comes back exactly, and ŷ sits just above the largest training target, 2041.6.
 
-**Paired cannot be reconstructed by this architecture.** Every node of the paired matrix is equivalent under relabelling, so the equivariant encoder gives all 20 the same μ, with a spread across nodes of about 1e-6. As in the optimization's node collapse, identical node latents make the pair decoder emit the uniform matrix. The encoder still tells the two inputs apart: node μ differs by 1.8 between them, and the global μ is 3.69 against 1.46. That difference is what gives them different ŷ even though both decode to uniform. ŷ = 563 cannot reflect the pairing itself, because no node latent records which node is whose partner. It is also extrapolation, since a strictly paired chain is periodic and reducible, and its true decay exponent at small ε is likely far outside the training range.
+**Paired cannot be reconstructed by this architecture.** Every node of the paired matrix is equivalent under relabelling, so the equivariant encoder gives all 20 the same μ, with a spread across nodes of about 1e-6. As in the optimization's node collapse, identical node latents make the pair decoder emit the uniform matrix. The encoder still tells the two inputs apart: node μ differs by 1.8 between them, and the global μ is 3.69 against 1.46. That difference is what gives them different ŷ even though both decode to uniform. ŷ = 563 cannot reflect the pairing itself, because no node latent records which node is whose partner. It is also extrapolation, since a strictly paired chain is periodic and reducible, and its true effective population at small ε is likely far outside the training range.
 
 ### Next steps
-- Try minimizing the decay exponent in the latent optimization instead of maximizing it.
+- Try minimizing the effective population in the latent optimization instead of maximizing it.
 
 ## 2026-09-23 — architecture diagrams, and every sweep re-evaluated
 
@@ -498,11 +498,11 @@ Re-evaluation is deterministic, as expected: across the 89 ledger rows no metric
 - `architecture.md`'s sources table still credits Gilmer and Simonovsky & Komodakis for edge-conditioned messages, which the code does not have: edges enter only through the attention bias.
 - The SVG render depends on npx fetching mermaid-cli and a headless Chrome, so a fresh machine needs network access the first time.
 
-## 2026-09-24 — minimizing the decay exponent
+## 2026-09-24 — minimizing the effective population
 
 Flipped the sign on log ŷ and lowered the regularized λ to 0.1, both directions, dg1 seed-1 run. Converged ŷ per test graph (true in brackets), minimize and maximize: g0 (82) 23 and 3.1e5, g1 (224) 36 and 416, g2 (545) 71 and 2.7e5. The descents leave the test cloud, and the 1e5 ascents are far past any test graph, so read both as partly extrapolation. Unregularized, the minimize paths run away like the ascents; g2 reaches ‖x‖ ≈ 1e153, where the decoder returns NaN.
 
-## 2026-09-24 — the predicted exponent as a 3D surface
+## 2026-09-24 — the predicted effective population as a 3D surface
 
 `latent_property_3D` draws ŷ over the highest-rate global dim and sorted-160 PC1 as a partial dependence: each grid point set in all 100 test graphs, everything else kept, ŷ averaged over the test graphs. PC1 replaced the top property node dim, which would have needed one value spread over 20 nodes. On the dg1 seed-0 run, over ±4 global and ±7 PC1, log ŷ rises mostly along PC1 and flattens outside the test cloud in both directions, so the predictor saturates rather than extrapolating linearly along these two axes. Test graphs sit an RMS 0.43 in log y from the surface against a std of 0.63 about their mean, both over the test graphs: the two axes carry part of the variation, and the averaged-out coordinates still move single graphs a lot. The PNG hides points behind the surface, hence the plotly page.
 
@@ -525,7 +525,7 @@ Picked the dg1 seed-1 run as the reference for figures: best of the non-collapse
 
 No decoded matrix is a landscape. The non-planar share of the MDS spectrum is 7.7e-8 median over the 100 test T, and 0.167 median (5–95% 0.12–0.25) over their reconstructions, dg1 seed 1. Along the traversals and interpolations it stays 0.16–0.42, and moving through the latent changes it by hundredths. The one excursion is the global traversal of test example 1, 0.42 at −3σ down to 0.16 at +3σ; interpolation midpoints on two of three pairs reach 0.33–0.34. Detailed balance nearly holds throughout (asymmetry ≤ 0.014), so the decoder learns reversibility but not planarity. Spatially, +t along the global spreads the nodes more evenly as ŷ rises, the landscape reading of "evens out the rows".
 
-Settled a colour split: transition matrices blue, the decay exponent green, signed error red/blue. Grey and purple were tried for the matrices and dropped.
+Settled a colour split: transition matrices blue, the effective population green, signed error red/blue. Grey and purple were tried for the matrices and dropped.
 
 ## 2026-09-28 — the aggregate posterior against the prior
 

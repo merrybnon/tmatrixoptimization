@@ -17,7 +17,7 @@ so a figure is self-describing wherever it ends up:
 - ``latent_property.png`` where graphs sit in the latent, coloured by the
                           property: the global against node-side axes, and
                           the sorted PCA with and without the global
-- ``latent_property_3D.png`` the predicted exponent as a partial-dependence
+- ``latent_property_3D.png`` the predicted effective population as a partial-dependence
                           surface over the global dim and sorted-160 PC1,
                           as log ŷ and as ŷ, with the test graphs standing on it
 - ``latent_property_3D.html`` the same as a page to turn and hover, plotly.js
@@ -34,7 +34,7 @@ and into ``figures/interpolation_and_traversals/``:
 
 and into ``figures/optimization/``:
 
-- ``maximize_g#.png``     BFGS ascent of the predicted exponent from test
+- ``maximize_g#.png``     BFGS ascent of the predicted effective population from test
                           example #, penalized by distance from the start; decoded along the
                           path, then the path in the graph-level latent views
 - ``minimize_g#.png``     the same descending
@@ -182,7 +182,7 @@ def training_curve(history, metrics, out):
 
 
 def predictions(data, scaler, metrics, out):
-    """Predicted against true, and the residual, in real decay-exponent units."""
+    """Predicted against true, and the residual, in real effective-population units."""
     log_y = scaler.inverse(data["y"].numpy())
     log_y_hat = scaler.inverse(data["y_hat"].numpy())
     true, predicted = np.exp(log_y), np.exp(log_y_hat)
@@ -196,7 +196,7 @@ def predictions(data, scaler, metrics, out):
     ax.scatter(true, predicted, s=22, color=PROPERTY_SOLID, edgecolor=SURFACE,
                linewidth=0.5, label="test example")
     # Prediction regressed on truth, against the identity line. The gap between
-    # them is resolution, not error: where they cross is the only exponent the
+    # them is resolution, not error: where they cross is the only effective population the
     # model gets right on average.
     grid = np.linspace(np.log(limits[0]), np.log(limits[1]), 200)
     ax.plot(np.exp(grid), np.exp(slope * grid + intercept), color=INK,
@@ -205,7 +205,7 @@ def predictions(data, scaler, metrics, out):
     ax.set_yscale("log")
     ax.set_xlim(limits)
     ax.set_ylim(limits)
-    ax.set_xlabel("true decay exponent")
+    ax.set_xlabel("true effective population")
     ax.set_ylabel("predicted")
     ax.set_title(
         f"Property prediction — R² {metrics['test_r2']:.3f} on log y, "
@@ -220,7 +220,7 @@ def predictions(data, scaler, metrics, out):
     # The same fit, seen as the tilt it puts on the residual: slope − 1.
     ax.plot(np.exp(grid), (slope - 1.0) * grid + intercept, color=INK, linewidth=1.4)
     ax.set_xscale("log")
-    ax.set_xlabel("true decay exponent")
+    ax.set_xlabel("true effective population")
     ax.set_ylabel("log ŷ − log y")
     # Resolution below 1 tilts this cloud and is the model being imperfect;
     # calibration away from 1 is the one that means the numbers are wrong.
@@ -498,7 +498,7 @@ def latent_axes(mu, log_y, metrics, d_global):
 def latent_property(data, scaler, metrics, out):
     """Where graphs land in the latent, and whether that place tracks the property.
 
-    One point per graph throughout, coloured by its decay exponent. A run with a
+    One point per graph throughout, coloured by its effective population. A run with a
     global latent gets two rows. The first puts the global dimension against
     the best node-side axis by each criterion — rate, property, sorted PC1 —
     all as graph means, like the global itself. The second is the sorted PCA,
@@ -607,7 +607,7 @@ def latent_property(data, scaler, metrics, out):
             ax.set_axis_off()
 
     fig.colorbar(plt.cm.ScalarMappable(norm=norm, cmap=PROPERTY), cax=bar).set_label(
-        "decay exponent", fontsize=8, color=INK_SOFT)
+        "effective population", fontsize=8, color=INK_SOFT)
     bar.tick_params(labelsize=7)
     fig.suptitle("Latent space against the property", fontsize=12, color=INK,
                  x=0.005, ha="left")
@@ -617,7 +617,7 @@ def latent_property(data, scaler, metrics, out):
 
 
 def pdp_surface(model, data, scaler, metrics, device):
-    """The predicted exponent as a surface over the global dim and sorted-160 PC1.
+    """The predicted effective population as a surface over the global dim and sorted-160 PC1.
 
     ŷ depends on every latent coordinate, so the surface is a partial
     dependence: at each grid point (g, p) every test graph has its global dim
@@ -691,7 +691,7 @@ def pdp_surface(model, data, scaler, metrics, device):
         panels.append({"surface": surface, "colour": colour, "true": true, "under": under,
                        "zlabel": zlabel})
 
-    # Colour is the decay exponent on both panels, on a log scale so the two
+    # Colour is the effective population on both panels, on a log scale so the two
     # read alike and the skewed upper end does not take the whole ramp.
     return {
         "g": g, "score": score, "decay": decay, "g_grid": g_grid, "p_grid": p_grid,
@@ -700,7 +700,7 @@ def pdp_surface(model, data, scaler, metrics, device):
         "high": max(decay.max(), np.exp(pdp_log).max(), pdp_raw.max()),
         "xlabel": f"global dim {top}",
         "ylabel": f"sorted-{n_sorted} PC1",
-        "title": (f"Partial dependence of the predicted exponent on global dim {top} "
+        "title": (f"Partial dependence of the predicted effective population on global dim {top} "
                   f"and sorted-{n_sorted} PC1"),
     }
 
@@ -737,7 +737,7 @@ def latent_property_3D(pdp, metrics, out):
 
     bar = fig.colorbar(plt.cm.ScalarMappable(norm=norm, cmap=PROPERTY),
                        cax=fig.add_subplot(grid[0, 2]))
-    bar.set_label("decay exponent — partial dependence on the surface, true for test graphs",
+    bar.set_label("effective population — partial dependence on the surface, true for test graphs",
                   fontsize=8, color=INK_SOFT)
     bar.ax.tick_params(labelsize=7)
     fig.suptitle(pdp["title"], fontsize=12, color=INK, x=0.005, ha="left")
@@ -749,8 +749,8 @@ def latent_property_3D(pdp, metrics, out):
 def latent_property_3D_html(pdp, metrics, out):
     """`pdp_surface` as a page to turn and hover, plotly.js embedded so it opens offline.
 
-    Colour carries log₁₀ of the exponent on one shared axis, the LogNorm of
-    the PNG, with the bar labelled in the exponent itself. Hovering a test
+    Colour carries log₁₀ of the effective population on one shared axis, the LogNorm of
+    the PNG, with the bar labelled in the effective population itself. Hovering a test
     graph gives its index, coordinates, true value and the surface under it.
     """
     if "message" in pdp:
@@ -807,7 +807,7 @@ def latent_property_3D_html(pdp, metrics, out):
         coloraxis=dict(
             colorscale=[[t, to_hex(PROPERTY(t))] for t in np.linspace(0, 1, 11)],
             cmin=low, cmax=high,
-            colorbar=dict(title=dict(text="decay exponent", side="right"),
+            colorbar=dict(title=dict(text="effective population", side="right"),
                           tickvals=np.log10(ticks), ticktext=[str(v) for v in ticks]),
         ),
         height=800, margin=dict(l=10, r=10, t=110, b=40),
@@ -1096,7 +1096,7 @@ def path_columns(log_y_hat, n_columns):
 
 
 def decay_text(log_y):
-    """A decay exponent that may have run off to 10^±1000 without becoming inf or 0."""
+    """An effective population that may have run off to 10^±1000 without becoming inf or 0."""
     if np.log(1.0) <= log_y < np.log(1e6):
         return f"{np.exp(log_y):.0f}"
     if np.log(1e-3) <= log_y < np.log(1.0):
@@ -1114,7 +1114,7 @@ def optimization(model, data, scaler, metrics, device, graph, lam, sense, out, s
     traversals. Below are the graph-level views of `latent_property` with the
     100 test graphs faded behind the path: every accepted iterate, the start
     square, the end a star, arrows in iteration order. The background is
-    coloured by the true exponent and the path by the predicted one, on one
+    coloured by the true effective population and the path by the predicted one, on one
     scale fitted to the data, so a path that leaves the data's range clips at
     the top colour, or the bottom one when minimizing, and its final value is
     written on the panel instead. ``sense`` is +1 to ascend, −1 to descend.
@@ -1207,7 +1207,7 @@ def optimization(model, data, scaler, metrics, device, graph, lam, sense, out, s
         np.c_[path.z.reshape(len(path.z), -1), path.z_global][-1]
         - np.r_[path.z[0].ravel(), path.z_global[0]])
     ax.text(0.0, 1.0,
-            f"test example {graph}, true decay exponent {decay[graph]:.0f}\n"
+            f"test example {graph}, true effective population {decay[graph]:.0f}\n"
             f"ŷ {decay_text(path.log_y_hat[0])} → {decay_text(path.log_y_hat[-1])}\n"
             f"‖x − x₀‖ = {moved:.3g} after {path.nit} iterations,\n"
             f"{path.nfev} evaluations\n"
@@ -1218,14 +1218,14 @@ def optimization(model, data, scaler, metrics, device, graph, lam, sense, out, s
         ax.scatter([], [], marker=marker, s=size, color=SURFACE, edgecolor=INK,
                    linewidth=0.8, label=name)
     ax.scatter([], [], s=30, color=PROPERTY_SOLID, alpha=0.4, linewidth=0,
-               label="test graphs, true exponent")
+               label="test graphs, true effective population")
     ax.legend(loc="lower left", fontsize=8)
 
     # A mappable of its own, so the bar shows the colours at full strength
     # rather than at the background's transparency.
     bar = fig.colorbar(plt.cm.ScalarMappable(norm=norm, cmap=PROPERTY),
                        cax=fig.add_subplot(lower[:, 4]), extend="max" if sense > 0 else "min")
-    bar.set_label("decay exponent — true for test graphs, predicted on the path",
+    bar.set_label("effective population — true for test graphs, predicted on the path",
                   fontsize=8, color=INK_SOFT)
     bar.ax.tick_params(labelsize=7)
 
@@ -1241,7 +1241,7 @@ def optimization(model, data, scaler, metrics, device, graph, lam, sense, out, s
 
 
 def decode_batch(model, device, scaler, z, z_global):
-    """Latents to ``(log10 T̂, predicted decay exponent)``, one entry per step."""
+    """Latents to ``(log10 T̂, predicted effective population)``, one entry per step."""
     with torch.no_grad():
         z, z_global = (torch.as_tensor(a, dtype=torch.float32, device=device)
                        for a in (z, z_global))
@@ -1280,7 +1280,7 @@ def draw_matrix_grid(decoded, titles, row_labels, floor, title, metrics, out):
     colorbar.set_label("log₁₀ T̂", fontsize=8, color=INK_SOFT)
     colorbar.ax.tick_params(labelsize=7)
 
-    fig.suptitle(f"{title}   |   ŷ is the predicted decay exponent", fontsize=12,
+    fig.suptitle(f"{title}   |   ŷ is the predicted effective population", fontsize=12,
                  color=INK, x=0.005, ha="left")
     footer(fig, metrics)
     fig.savefig(out)
@@ -1321,7 +1321,7 @@ def draw_spatial_grid(decoded, titles, row_labels, anchor, title, metrics, out):
             if column == 0:
                 ax.set_ylabel(row_labels[row], fontsize=8)
 
-    fig.suptitle(f"{title}   |   ŷ is the predicted decay exponent, edge width ∝ T̂_ij",
+    fig.suptitle(f"{title}   |   ŷ is the predicted effective population, edge width ∝ T̂_ij",
                  fontsize=12, color=INK, x=0.005, ha="left")
     footer(fig, metrics)
     fig.savefig(out)

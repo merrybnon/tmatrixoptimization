@@ -90,7 +90,7 @@ INTERPOLATIONS = ("interpolation",)
 SPATIAL = "_spatial"
 PATH_VIEWS = ("", SPATIAL)
 # BFGS latent optimization from each of these test examples, pushing the
-# predicted exponent up and down, each once regularized and once not; the
+# predicted effective population up and down, each once regularized and once not; the
 # prefix names the sense and the suffix the variant.
 OPTIMIZATION_SENSES = ("maximize", "minimize")
 OPTIMIZATION_GRAPHS = (0, 1, 2)

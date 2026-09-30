@@ -80,7 +80,7 @@ def target_statistics(targets, meta, out):
 
         for ax in axes[row]:
             ax.set_xscale(scale)
-            ax.set_xlabel("target t (decay exponent)")
+            ax.set_xlabel("target t (effective population)")
             ax.axvline(median, color=VAL, linestyle="--", linewidth=1.2, label="median")
             ax.legend(loc="upper right")
 
@@ -213,7 +213,7 @@ def uniformness_vs_target(matrices, targets, meta, out, scale):
         ax.set_yscale(scale)
         ax.set_title(f"{title}   (Spearman ρ {rho:+.2f})")
         ax.set_xlabel(xlabel)
-        ax.set_ylabel("target (decay exponent)")
+        ax.set_ylabel("target (effective population)")
 
     fig.suptitle(
         f"Uniformness against target, {meta['drop']}, {scale} target axis   |   "

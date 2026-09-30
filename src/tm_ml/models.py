@@ -492,7 +492,7 @@ class TMVAE(nn.Module):
         Sum being the expressive choice is an argument about multisets of
         varying size.
 
-        Emits log(decay exponent), not the exponent: the target runs 48.8 to
+        Emits log(effective population), not the value itself: the target runs 48.8 to
         2041.6 and is right-skewed. The log is the caller's to take.
         """
         return self.predictor(torch.cat([self.pool(z), z_global], dim=-1)).squeeze(-1)

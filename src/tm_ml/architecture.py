@@ -158,7 +158,7 @@ def diagram(m, cfg, counts, run):
         f'<br/>{_k(counts["predictor"])} params"]',
         "    PO --> MP",
         "  end",
-        '  Y[/"log ŷ · log decay exponent"/]',
+        '  Y[/"log ŷ · log effective population"/]',
         "",
         "  T --> ENC --> LAT --> DEC --> TH",
         "  LAT --> PRED --> Y",
