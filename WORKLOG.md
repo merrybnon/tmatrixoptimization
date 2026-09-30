@@ -557,3 +557,52 @@ Fixed nodes with LayerNorm edges raise R² on all three seeds, +0.032, +0.029, +
 ### Next steps
 - Make `edge_norm: fixed` the setting for subsequent sweeps. It is the largest reconstruction gain on record and costs nothing on the property.
 - More seeds on `node_norm` before adopting it, and the graph-mean probe to see whether the global collapse is relocation, as on 09-22, or loss.
+
+## 2026-09-30 — the property weight γ, and how much room prediction has
+
+Started from the property overfit in the fixed-edge `input_norm` runs: train prop, standardized MSE so ≈ 1 − R², falls steadily to about 0.07 by epoch 600, while val prop flattens at 0.15–0.25 somewhere between epochs 190 and 480. The history logs train prop under dropout and a sampled z, so the eval-mode train fit is tighter still. Checkpoint selection barely sees it: prop is about 0.2 of a ~2.7 `val_score`, so the kept epoch is chosen by reconstruction.
+
+### A feature baseline matches the VAE
+
+One-off, not added to the repo. A `HistGradientBoostingRegressor` on about 30 invariant features of T, trained on train + val (900 graphs) of each seed's split and scored on its test split, mean ± sd over seeds 0, 1, 2:
+
+| features | ridge R² | GBM R² |
+|---|---|---|
+| −log(1 − λ) for λ₂, λ₃, and −log(1 + λ_min) | 0.235 ± 0.035 | 0.189 ± 0.153 |
+| the 19 nontrivial eigenvalues | 0.284 ± 0.059 | 0.309 ± 0.091 |
+| row-entropy and log₁₀-entry statistics | 0.482 ± 0.095 | 0.650 ± 0.054 |
+| eigenvalues + entropy + stationary distribution | 0.759 ± 0.031 | **0.826 ± 0.023** |
+
+The chain is reversible, so the spectrum is real. The relaxation time alone correlates only −0.33 with log y across the 1000 matrices, so the target is not the spectral gap. The fixed-edge VAE at γ = 1 sits at 0.772 ± 0.055: the latent was not yet beating hand-picked features.
+
+The same GBM trained on linear y instead of log y is worse on every metric, including R² on linear y (0.756 ± 0.020 against 0.799 ± 0.014 for the log-trained model exponentiated). Squared error on linear y is dominated by the few graphs above ~1000, so it spends its capacity on a handful of examples.
+
+### The generator reproduces the drop
+
+1000 fresh draws from the stated generator, 20 uniform points in the unit square, W_ij = D_ij⁻⁴, rows normalized, match Tom1000 on every quantile checked: log₁₀ entries over all off-diagonal entries (1/50/99%: −6.45/−2.72/−0.03 against −6.50/−2.72/−0.02), min row entropy over matrices (10/50/90%: 0.002/0.044/0.250 against 0.002/0.044/0.239), −log₁₀(1 − λ₂) over matrices (1.64/2.38/3.29 against 1.66/2.33/3.31). Only the target needs Tom's simulation, so unlabeled matrices for the reconstruction and KL terms are unlimited.
+
+### γ buys R² with reconstruction
+
+`config/sweeps/gamma.yaml`, γ ∈ {3, 5, 10, 15, 30} × seeds 0, 1, 2 at the fixed-edge, layernorm-node cell of `input_norm`, whose three runs are the γ = 1 control. The `recon_ratio` sweep had already hinted at it: lowering λ_recon raises γ against reconstruction, and at λ_recon 0.25 and 0 R² rose on every seed by ~0.05. 15 runs on one card, 260–350 s of training each with other users on the card.
+
+Test split; the mean ± sd is over the three seeds, each seed its own split; the prop columns are train and val at the kept checkpoint, averaged over seeds.
+
+| γ | R², seeds 0 / 1 / 2 | ΔR² paired vs γ = 1 | mean R² | median rel err | recon | log_recon | KL | prop train / val |
+|---|---|---|---|---|---|---|---|---|
+| 1 | 0.709 / 0.813 / 0.794 | — | 0.772 ± 0.055 | 0.219 | 0.266 | 0.181 | 186 | 0.077 / 0.211 |
+| 3 | 0.780 / 0.815 / 0.835 | +0.071 / +0.002 / +0.041 | 0.810 ± 0.028 | 0.187 | 0.496 | 0.233 | 187 | 0.034 / 0.209 |
+| 5 | 0.819 / 0.845 / 0.800 | +0.110 / +0.032 / +0.006 | 0.821 ± 0.023 | 0.178 | 0.644 | 0.247 | 185 | 0.017 / 0.181 |
+| 10 | 0.786 / 0.830 / 0.820 | +0.077 / +0.016 / +0.026 | 0.812 ± 0.023 | 0.191 | 0.926 | 0.313 | 188 | 0.015 / 0.183 |
+| 15 | 0.827 / 0.841 / 0.835 | +0.118 / +0.028 / +0.041 | 0.834 ± 0.007 | 0.196 | 0.586 | 0.312 | 203 | 0.017 / 0.171 |
+| 30 | 0.826 / 0.847 / 0.856 | +0.117 / +0.034 / +0.062 | 0.843 ± 0.015 | 0.188 | 0.828 | 0.326 | 205 | 0.007 / 0.157 |
+
+- **R² rises on all 15 paired seeds**, two of them barely (+0.002, +0.006). Most of the gain is on seed 0, the hardest split, 0.709 → ~0.83; seed 1 moves 0.02–0.03. From γ = 3 up the cells sit in 0.81–0.84 and γ = 10 falls below 5, so ordering within that band is noise. Median relative error is best at γ = 5 and not monotone.
+- **Reconstruction pays.** recon 2.2–3.5× and log_recon 1.3–1.8× worse from γ = 5 up, while KL stays at 185–205 nats: the latent keeps its capacity and spends it on the property. γ = 30's recon, 0.828, is where the layernorm-edge models were.
+- **The overfit widened.** Train prop at the checkpoint falls 0.077 → 0.007 against val 0.211 → 0.157. Raising γ fits the 800 targets harder and weights selection toward the property; it does not close the gap.
+- **γ = 15–30 only match the GBM**, 0.834–0.843 against 0.826 ± 0.023, a difference inside the split spread.
+
+### Next steps
+- Pick γ between 5 and 15 as the working setting: most of the R² for a 2–3× reconstruction cost.
+- Semi-supervised batches: pair each labelled batch with a freshly generated unlabeled one that carries only recon, log_recon and KL. It targets the encoder memorizing 800 graphs, which γ widened, and may let a high γ keep reconstruction.
+- A scale on the property's gradient into the encoder, 0 meaning the head trains on a detached latent, and an EMA of the weights for evaluation, since val prop jumps 0.24 ↔ 0.45 between epochs.
+- Five seeds or 5-fold CV before ranking any of these: the split-to-split sd in R² is 0.02–0.05, the size of the gains being chased.

@@ -30,6 +30,7 @@ All notable changes to this project will be documented in this file. The format 
 - `docs/notes/2026-9-11 The ML Problem.pptx`: the slides describing how the matrices are generated.
 - `src/tm_ml/models.py`, `config.py`, `paths.py`, `train.py`: `node_norm` and `edge_norm`, `layernorm` (default, the old behaviour, same state dict keys) or `fixed`, a `Standardize` module whose per-feature mean and std are fitted on the training split's matrices by `TMVAE.fit_input_stats` and saved as buffers. Edge constants come from off-diagonal pairs only, and the diagonal's four value features are zeroed after standardizing. Unfitted constants are nan, so a model that skipped fitting fails the first-step check instead of running as the identity. Abbreviated `nnorm` and `enorm`; `benchmarks.py` gains both columns and `architecture.py` labels the norm.
 - `config/sweeps/input_norm.yaml`: node × edge norm × three seeds at the dg1 settings. Fixed edges cut recon 3.1× and log_recon 2.3× with 25 fewer node nats and no change in R²; fixed nodes add +0.03 R² paired on each seed but collapse the global in two of three.
+- `config/sweeps/gamma.yaml`: the property weight γ ∈ {3, 5, 10, 15, 30} × three seeds at the fixed-edge cell of `input_norm.yaml`, filed under `results/gamma_sweep/`. γ = 1 is left out, since `parent_path` is not determining and it would retrain the `input_norm` runs that serve as its control. R² rises on every seed at every γ, 0.772 → 0.843 at γ = 30, while recon worsens 2–3.5× and the train/val property gap widens.
 
 ### Removed
 
