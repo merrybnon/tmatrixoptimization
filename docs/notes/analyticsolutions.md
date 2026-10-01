@@ -97,7 +97,7 @@ The spectral gap is a poor predictor, and the target is not a mixing time. Almos
 - Hössjer, Olsson, Laikre & Ryman (2014). A new general analytical approach for modeling patterns of genetic differentiation and effective size of subdivided populations over time. *Mathematical Biosciences* 258:113–133.
 - Hössjer et al. (2016). Metapopulation inbreeding dynamics, effective size and subpopulation differentiation — a general analytical approach for diploid organisms. *Theoretical Population Biology*. [link](https://cyberleninka.org/article/n/1236886)
 - Olsson, Laikre, Hössjer & Ryman (2017). gesp: a computer program for modelling genetic effective population size, inbreeding and divergence in substructured populations. *Molecular Ecology Resources*. [PMC](https://pmc.ncbi.nlm.nih.gov/articles/PMC5724513/)
-- (2016). Metapopulation effective size and conservation genetic goals for the Fennoscandian wolf. *Heredity*. [link](https://www.nature.com/articles/hdy201644)
+- Metapopulation effective size and conservation genetic goals for the Fennoscandian wolf (2016). *Heredity*. [link](https://www.nature.com/articles/hdy201644)
 - Ryman, Laikre & Hössjer (2019). Do estimates of contemporary effective population size tell us what we want to know? *Molecular Ecology*. [PMC](https://pmc.ncbi.nlm.nih.gov/articles/PMC6850010/)
 - Tufto & Hindar (2003). Effective size in management and conservation of subdivided populations. *Journal of Theoretical Biology* 222:273–281.
 - Whitlock & Barton (1997). The effective size of a subdivided population. *Genetics* 146:427–441.
