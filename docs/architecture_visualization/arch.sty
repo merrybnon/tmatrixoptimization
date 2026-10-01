@@ -1,0 +1,87 @@
+% arch.sty -- shared styles for the architecture figures.
+% Kept free of arrows.meta and other newer PGF libraries so the figures build
+% on a stock TeX Live with pgf 3.x.
+\ProvidesPackage{arch}[2026/08/27 architecture figures]
+
+\RequirePackage{tikz}
+\RequirePackage{amsmath}
+\RequirePackage{xcolor}
+\RequirePackage[scaled=0.92]{helvet}
+\renewcommand{\familydefault}{\sfdefault}
+
+\usetikzlibrary{positioning,calc,fit,backgrounds,arrows,
+                decorations.pathreplacing,shapes.geometric}
+
+% ---------------------------------------------------------------- palette ---
+\definecolor{encFill}{HTML}{DCE9F2}
+\definecolor{encLine}{HTML}{2C6E8F}
+\definecolor{decFill}{HTML}{FBE3D0}
+\definecolor{decLine}{HTML}{B4651C}
+\definecolor{botFill}{HTML}{E6DDEF}
+\definecolor{botLine}{HTML}{6A4C93}
+\definecolor{latFill}{HTML}{FBF0C0}
+\definecolor{latLine}{HTML}{A07C12}
+\definecolor{fcFill}{HTML}{F6D8DB}
+\definecolor{fcLine}{HTML}{A63A44}
+\definecolor{ioFill}{HTML}{ECECEC}
+\definecolor{ioLine}{HTML}{4A4A4A}
+\definecolor{skipLine}{HTML}{4F8A2E}
+\definecolor{noteGray}{HTML}{4D4D4D}
+
+% ----------------------------------------------------------------- styles ---
+\tikzset{
+  blk/.style   = {rectangle, rounded corners=2pt, draw, line width=0.7pt,
+                  align=center, inner sep=3.5pt, font=\footnotesize},
+  enc/.style   = {blk, fill=encFill, draw=encLine},
+  dec/.style   = {blk, fill=decFill, draw=decLine},
+  bot/.style   = {blk, fill=botFill, draw=botLine},
+  lat/.style   = {blk, fill=latFill, draw=latLine},
+  fcb/.style   = {blk, fill=fcFill,  draw=fcLine},
+  iob/.style   = {blk, fill=ioFill,  draw=ioLine},
+  % thin vertical slabs for the VAE band: width/height carry the tensor shape
+  slab/.style  = {rectangle, draw, line width=0.7pt, inner sep=0pt, outer sep=0pt},
+  encS/.style  = {slab, fill=encFill, draw=encLine},
+  decS/.style  = {slab, fill=decFill, draw=decLine},
+  fcS/.style   = {slab, fill=fcFill,  draw=fcLine},
+  latS/.style  = {slab, fill=latFill, draw=latLine},
+  ioS/.style   = {slab, fill=ioFill,  draw=ioLine},
+  % text
+  shp/.style   = {font=\scriptsize, text=noteGray, align=center},
+  par/.style   = {font=\scriptsize, text=noteGray, align=center},
+  capt/.style   = {font=\footnotesize, text=noteGray, align=left},
+  ttl/.style   = {font=\large\bfseries, align=left},
+  sub/.style   = {font=\small, text=noteGray, align=left},
+  % arrows
+  flow/.style  = {->, >=stealth', line width=0.9pt, draw=black!62},
+  thin flow/.style = {->, >=stealth', line width=0.7pt, draw=black!55},
+  skip/.style  = {->, >=stealth', line width=0.9pt, draw=skipLine, dashed,
+                  dash pattern=on 3pt off 2pt},
+  side/.style  = {->, >=stealth', line width=0.8pt, draw=latLine,
+                  dash pattern=on 2pt off 1.6pt},
+  brc/.style   = {decorate, decoration={brace, amplitude=4pt, mirror},
+                  draw=noteGray, line width=0.6pt},
+  brcup/.style = {decorate, decoration={brace, amplitude=4pt},
+                  draw=noteGray, line width=0.6pt},
+}
+
+% Two-line block label: name on top, tensor shape beneath in a smaller face.
+\newcommand{\blkl}[2]{#1\\[1.2pt]{\scriptsize #2}}
+
+% ------------------------------------------------- cylindrical padding inset -
+% A 5x3 tensor (heavy outline) shown with its pad ring: the left and right pad
+% columns are copies of the opposite edge (periodic x), the top and bottom pad
+% rows are zeros (open y).  #1,#2 place the lower-left corner of the ring.
+\newcommand{\cylpadinset}[2]{%
+  \begin{scope}[shift={(#1,#2)}, x=0.24cm, y=0.24cm]
+    \fill[encFill]      (1,1) rectangle (6,4);
+    \fill[skipLine!30]  (0,1) rectangle (1,4);
+    \fill[skipLine!30]  (6,1) rectangle (7,4);
+    \fill[black!12]     (0,0) rectangle (7,1);
+    \fill[black!12]     (0,4) rectangle (7,5);
+    \draw[black!35, line width=0.3pt] (0,0) grid (7,5);
+    \draw[black!75, line width=0.8pt] (1,1) rectangle (6,4);
+    \draw[->, >=stealth', skipLine, line width=0.6pt]
+      (1.5,4.45) to[out=75, in=105] (6.5,4.45);
+    \draw[->, >=stealth', skipLine, line width=0.6pt]
+      (5.5,0.55) to[out=-75, in=-105] (0.5,0.55);
+  \end{scope}}

@@ -1,0 +1,38 @@
+% Transition-matrix VAE (TMVAE in src/tm_ml/models.py) as a block map: the whole
+% VAE along the top, the property predictor dropping down from the latent.
+\documentclass[border=8pt, multi=tikzpicture]{standalone}
+\usepackage{arch}
+
+\begin{document}
+\begin{tikzpicture}[
+  big/.style  = {minimum width=2.3cm, minimum height=2.4cm, font=\small},
+  pill/.style = {rounded corners=0.35cm, minimum width=1.6cm, minimum height=0.7cm,
+                 font=\small, dash pattern=on 2pt off 1.5pt},
+  row/.style  = {flow},
+]
+
+% ----------------------------------------------------------------------- vae --
+\node[iob, big]  (x)  at ( 0.00, 0) {Transition\\Matrix $T$};
+\node[enc, big]  (eg) at ( 2.75, 0) {Encoder\\Graph\\Transformer};
+\node[lat, pill, rounded corners=0.45cm, minimum height=0.9cm, minimum width=2.3cm,
+      dash pattern=]
+                 (z)  at ( 5.50, 0) {latent\\$z=\mu+\sigma\odot\varepsilon$};
+\node[enc, big]  (dt) at ( 8.25, 0) {Decoder\\Transformer};
+\node[enc, big]  (hd) at (11.00, 0) {Pair Head};
+\node[iob, big]  (xh) at (13.75, 0) {output $\hat{T}$};
+
+% ----------------------------------------------------------------- predictor --
+\node[enc, big]  (pr) at ( 5.50, -3.3) {Predictor};
+\node[iob, big]  (yh) at ( 5.50, -6.6) {output $\log\hat{y}$};
+
+% -------------------------------------------------------------------- arrows --
+\draw[row] (x)  -- (eg);
+\draw[row] (eg) -- (z);
+\draw[row] (z)  -- (dt);
+\draw[row] (dt) -- (hd);
+\draw[row] (hd) -- (xh);
+\draw[row] (z)  -- (pr);
+\draw[row] (pr) -- (yh);
+
+\end{tikzpicture}
+\end{document}
