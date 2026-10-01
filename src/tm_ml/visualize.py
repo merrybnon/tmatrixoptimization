@@ -200,8 +200,8 @@ def predictions(data, scaler, metrics, out):
     ax.set_xlabel("true effective population")
     ax.set_ylabel("predicted")
     ax.set_title(
-        f"Property prediction — R² {metrics['test_r2']:.3f} on log y, "
-        f"median relative error {metrics['test_median_relative_error']:.1%}"
+        f"Property prediction — median relative error "
+        f"{metrics['test_median_relative_error']:.1%}"
     )
     ax.legend(loc="upper left")
 
