@@ -481,3 +481,20 @@ def test_anchor_loss_is_zero_at_its_target():
     assert float(anchor_loss(model, 6, "cpu")) == pytest.approx(0.0, abs=1e-20)
     assert TMVAE(TMVAEConfig(n_nodes=6)).state_dict().keys().isdisjoint({"anchor_scaled",
                                                                         "prop_cap_scaled"})
+
+
+def test_uniform_max_head_peaks_at_U():
+    """ŷ(enc U) is the anchor exactly, and no matrix or latent scores above it."""
+    from tm_ml.datasets import TargetScaler
+    from tm_ml.models import uniform_matrix
+
+    model = make(n_nodes=6, d_global=1, prop_head="uniform_max")
+    model.fit_target(TargetScaler(mean=5.7, std=0.6))
+    mu, _, g, _ = model.encode(uniform_matrix(6, dtype=torch.float64)[None])
+    assert float(model.predict(mu, g)) == pytest.approx(float(model.anchor_scaled), abs=1e-12)
+    T = random_T(32, 6, seed=3)
+    mu, _, g, _ = model.encode(T)
+    assert (model.predict(mu, g) <= model.anchor_scaled).all()
+    z = torch.randn(32, 6, 8, dtype=torch.float64) * 50
+    assert (model.predict(z, torch.randn(32, 1, dtype=torch.float64) * 50)
+            <= model.anchor_scaled).all()

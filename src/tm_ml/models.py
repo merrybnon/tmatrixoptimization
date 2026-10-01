@@ -14,6 +14,10 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+PROP_HEADS = ("mlp", "uniform_max")
+# Rank of the quadratic form in the uniform_max head.
+UNIFORM_PROJ = 16
+
 N_NODE_FEATURES = 5
 N_EDGE_FEATURES = 5
 
@@ -54,6 +58,7 @@ class TMVAEConfig:
     anchor_uniform: float = 0.0
     anchor_target: float = 2000.0
     prop_cap: float = 0.0
+    prop_head: str = "mlp"
 
 
 @dataclass
@@ -421,8 +426,18 @@ class TMVAE(nn.Module):
         # writes here; nan until then, as with `Standardize`.
         if cfg.prop_cap:
             self.register_buffer("prop_cap_scaled", torch.tensor(float("nan")))
-        if cfg.anchor_uniform:
+        if cfg.anchor_uniform or cfg.prop_head == "uniform_max":
             self.register_buffer("anchor_scaled", torch.tensor(float("nan")))
+        if cfg.prop_head not in PROP_HEADS:
+            raise ValueError(f"unknown prop_head {cfg.prop_head!r}; expected one of {PROP_HEADS}")
+        # uniform_max: log ŷ = anchor − ‖A(φ(x) − φ(x_U))‖², φ the predictor's
+        # hidden layers and x_U the pooled encoding of U. ŷ(enc U) is the
+        # anchor by construction and nothing scores above it. The MLP's last
+        # Linear is unused under this head.
+        self.uniform_proj = (
+            nn.Linear(cfg.predictor_hidden, UNIFORM_PROJ, bias=False)
+            if cfg.prop_head == "uniform_max" else None
+        )
 
     @torch.no_grad()
     def fit_input_stats(self, T):
@@ -443,7 +458,7 @@ class TMVAE(nn.Module):
         """Standardize the raw-unit cap and anchor with the run's target scaler."""
         if self.config.prop_cap:
             self.prop_cap_scaled.fill_(scaler.transform(math.log(self.config.prop_cap)))
-        if self.config.anchor_uniform:
+        if self.config.anchor_uniform or self.config.prop_head == "uniform_max":
             self.anchor_scaled.fill_(scaler.transform(math.log(self.config.anchor_target)))
 
     def encode(self, T):
@@ -517,7 +532,15 @@ class TMVAE(nn.Module):
         Emits log(effective population), not the value itself: the target runs 48.8 to
         2041.6 and is right-skewed. The log is the caller's to take.
         """
-        out = self.predictor(torch.cat([self.pool(z), z_global], dim=-1)).squeeze(-1)
+        x = torch.cat([self.pool(z), z_global], dim=-1)
+        if self.uniform_proj is not None:
+            mu_U, _, g_U, _ = self.encode(
+                uniform_matrix(z.shape[1], z.device, z.dtype)[None])
+            x_U = torch.cat([self.pool(mu_U), g_U], dim=-1)
+            phi = self.predictor[:-1]
+            gap = self.uniform_proj(phi(x) - phi(x_U))
+            return self.anchor_scaled - gap.pow(2).sum(-1)
+        out = self.predictor(x).squeeze(-1)
         if self.config.prop_cap:
             # c − softplus(c − s): the identity well below c, never above it.
             out = self.prop_cap_scaled - F.softplus(self.prop_cap_scaled - out)

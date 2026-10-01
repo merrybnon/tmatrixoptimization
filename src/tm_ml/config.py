@@ -118,6 +118,9 @@ MODEL_DEFAULTS = {
         # A soft ceiling on the predicted effective population, in raw units:
         # log ŷ = c − softplus(c − s). 0 leaves the predictor unbounded.
         "prop_cap": 0.0,
+        # "mlp", or "uniform_max": log ŷ = log anchor_target − ‖A(φ(x) − φ(x_U))‖²,
+        # which puts the maximum at U by construction. See models.py.
+        "prop_head": "mlp",
     },
 }
 

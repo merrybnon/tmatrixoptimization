@@ -7,10 +7,12 @@ encoder ends in a LayerNorm, so its output is bounded over every input, and so
 is F. The row-stochastic matrices are compact, so F has a maximum, and the
 question is only where.
 
-Two parameterizations:
+Three parameterizations:
 
 - ``logits``: T = rowsoftmax(L), any row-stochastic matrix with a zero
   diagonal, 380 free logits. U is L = 0.
+- ``reversible``: T = diag(W·1)⁻¹ W with W symmetric, 190 free numbers.
+  Every matrix in the drop satisfies detailed balance, and so does U.
 - ``landscape``: T = generate(points), 20 points in the plane with the drop's
   W_ij = D_ij⁻⁴. These are the only matrices the generator makes. U is not
   among them: it needs 20 mutually equidistant points, which the plane does
@@ -36,6 +38,28 @@ def generate_torch(points):
     D2 = (diff ** 2).sum(-1) + torch.eye(n, dtype=points.dtype)
     W = D2 ** (-DISPERSAL_POWER / 2) * (1 - torch.eye(n, dtype=points.dtype))
     return W / W.sum(1, keepdim=True)
+
+
+def reversible_T(w):
+    """T = diag(W·1)⁻¹ W, W symmetric with a zero diagonal and positive
+    off-diagonal entries exp(w), 190 free numbers. Every such T is reversible
+    with π ∝ W·1, as every matrix in the drop is, and w = 0 is U."""
+    n = common.N
+    iu = torch.triu_indices(n, n, 1)
+    W = w.new_zeros(n, n)
+    W = W.index_put((iu[0], iu[1]), torch.exp(w))
+    W = W + W.T
+    return W / W.sum(1, keepdim=True)
+
+
+def symmetric_logits(T):
+    """w for a reversible T, from W_ij = π_i T_ij."""
+    from tm_ml.landscape import stationary
+    W = stationary(T)[:, None] * T
+    W = 0.5 * (W + W.T)
+    iu = np.triu_indices(common.N, 1)
+    w = np.log(W[iu].clip(1e-300))
+    return w - w.mean()
 
 
 def run(ctx, to_T, x0, maxiter):
@@ -83,6 +107,19 @@ def main():
         T, y, res = run(ctx, logits_to_T, x0, args.maxiter)
         summarize(ctx, label, T, y, y0)
         ends[f"logits {label}"] = (T[0].numpy(), y)
+
+    print("\nreversible: T = diag(W·1)⁻¹ W, W symmetric")
+    starts = [("U", np.zeros(190))]
+    for i in test:
+        starts.append((f"test graph {i}", symmetric_logits(ctx.T[i].numpy())))
+    for k in range(args.starts):
+        starts.append((f"random {k}", rng.normal(0, 3, 190)))
+    for label, x0 in starts:
+        with torch.no_grad():
+            y0 = float(np.exp(common.cycle_log_y_hat(ctx, reversible_T(torch.from_numpy(x0))[None])))
+        T, y, res = run(ctx, reversible_T, x0, args.maxiter)
+        summarize(ctx, label, T, y, y0)
+        ends[f"reversible {label}"] = (T[0].numpy(), y)
 
     print("\nlandscape: T = generate(points)")
     starts = []

@@ -140,6 +140,7 @@ ABBREV = {
     "anchor_uniform": "au",
     "anchor_target": "at",
     "prop_cap": "pcap",
+    "prop_head": "phead",
 }
 
 NAMED_SEPARATELY = frozenset({"model", "drop"})
@@ -194,6 +195,7 @@ NAME_BASELINE = {
         "anchor_uniform": 0.0,
         "anchor_target": 2000.0,
         "prop_cap": 0.0,
+        "prop_head": "mlp",
     },
 }
 
