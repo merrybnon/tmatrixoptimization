@@ -191,18 +191,10 @@ def predictions(data, scaler, metrics, out):
     fig, axes = plt.subplots(1, 2, figsize=(10.5, 4.6))
 
     ax = axes[0]
-    limits = [min(true.min(), predicted.min()) * 0.9, max(true.max(), predicted.max()) * 1.1]
+    limits = [0.0, max(true.max(), predicted.max()) * 1.05]
     ax.plot(limits, limits, color=INK_SOFT, linewidth=1.0, linestyle="--", label="exact")
     ax.scatter(true, predicted, s=22, color=PROPERTY_SOLID, edgecolor=SURFACE,
                linewidth=0.5, label="test example")
-    # Prediction regressed on truth, against the identity line. The gap between
-    # them is resolution, not error: where they cross is the only effective population the
-    # model gets right on average.
-    grid = np.linspace(np.log(limits[0]), np.log(limits[1]), 200)
-    ax.plot(np.exp(grid), np.exp(slope * grid + intercept), color=INK,
-            linewidth=1.4, label=f"fit, resolution {slope:.2f}")
-    ax.set_xscale("log")
-    ax.set_yscale("log")
     ax.set_xlim(limits)
     ax.set_ylim(limits)
     ax.set_xlabel("true effective population")
@@ -214,6 +206,7 @@ def predictions(data, scaler, metrics, out):
     ax.legend(loc="upper left")
 
     ax = axes[1]
+    grid = np.linspace(np.log(true.min() * 0.9), np.log(true.max() * 1.1), 200)
     residual = log_y_hat - log_y
     ax.axhline(0.0, color=INK_SOFT, linewidth=1.0, linestyle="--")
     ax.scatter(true, residual, s=22, color=PROPERTY_SOLID, edgecolor=SURFACE, linewidth=0.5)
