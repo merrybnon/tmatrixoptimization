@@ -59,6 +59,8 @@ class TMVAEConfig:
     anchor_target: float = 2000.0
     prop_cap: float = 0.0
     prop_head: str = "mlp"
+    lambda_star: float = 0.0
+    star_margin: float = 0.05
 
 
 @dataclass
@@ -590,6 +592,31 @@ def anchor_loss(model, n, device):
     dtype = next(model.parameters()).dtype
     mu, _, mu_global, _ = model.encode(uniform_matrix(n, device, dtype)[None])
     return (model.predict(mu, mu_global)[0] - model.anchor_scaled) ** 2
+
+
+def star_loss(model, T, margin):
+    """Penalize ŷ falling along segments toward U, in standardized log y.
+
+    For each matrix T, two points s₁ < s₂ on T(s) = (1 − s)·T + s·U, and
+    relu(ŷ(T(s₁)) − ŷ(T(s₂)) + margin·(s₂ − s₁)). Zero for every segment
+    exactly when ŷ rises toward U at a rate of at least ``margin``, and a ŷ
+    that rises along the segment from every T to U has its maximum at U.
+    Half the segments start from the batch, half from random row-stochastic
+    matrices, so the constraint reaches past the data. No labels needed.
+    """
+    B, n = T.shape[0], T.shape[-1]
+    off = off_diagonal(n, T.device)
+    scale = torch.rand(B, 1, 1, device=T.device, dtype=T.dtype) * 6.0
+    logits = torch.randn(B, n, n, device=T.device, dtype=T.dtype) * scale
+    random_T = F.softmax(logits.masked_fill(~off, float("-inf")), dim=-1)
+    start = torch.cat([T, random_T])
+    s = torch.rand(2, len(start), 1, 1, device=T.device, dtype=T.dtype).sort(0).values
+    U = uniform_matrix(n, T.device, T.dtype)
+    ends = torch.cat([(1 - s[0]) * start + s[0] * U, (1 - s[1]) * start + s[1] * U])
+    mu, _, mu_global, _ = model.encode(ends)
+    y1, y2 = model.predict(mu, mu_global).chunk(2)
+    gap = (s[1] - s[0]).flatten()
+    return F.relu(y1 - y2 + margin * gap).mean()
 
 
 def gaussian_kl(mu, logvar):

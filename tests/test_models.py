@@ -498,3 +498,18 @@ def test_uniform_max_head_peaks_at_U():
     z = torch.randn(32, 6, 8, dtype=torch.float64) * 50
     assert (model.predict(z, torch.randn(32, 1, dtype=torch.float64) * 50)
             <= model.anchor_scaled).all()
+
+
+def test_star_loss_is_zero_for_a_predictor_rising_toward_U():
+    """A predictor that only rewards closeness to U satisfies the constraint."""
+    from tm_ml.models import star_loss
+
+    model = make(n_nodes=6, d_global=1)
+    model.encode = lambda T: (T, None, T.new_zeros(len(T), 1), None)
+    # ŷ = −Σ (T − U)², which rises strictly along every segment toward U.
+    U = torch.full((6, 6), 1 / 5, dtype=torch.float64).fill_diagonal_(0)
+    model.predict = lambda z, g: -((z - U) ** 2).sum((-1, -2))
+    T = random_T(16, 6, seed=1)
+    assert float(star_loss(model, T, margin=0.0)) == 0.0
+    model.predict = lambda z, g: ((z - U) ** 2).sum((-1, -2))
+    assert float(star_loss(model, T, margin=0.0)) > 0.0

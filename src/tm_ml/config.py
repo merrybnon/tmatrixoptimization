@@ -121,6 +121,11 @@ MODEL_DEFAULTS = {
         # "mlp", or "uniform_max": log ŷ = log anchor_target − ‖A(φ(x) − φ(x_U))‖²,
         # which puts the maximum at U by construction. See models.py.
         "prop_head": "mlp",
+        # Weight on the star-shaped constraint around U: ŷ should rise along
+        # every segment from a matrix toward U, by at least star_margin in
+        # standardized log y per unit of s. See models.star_loss.
+        "lambda_star": 0.0,
+        "star_margin": 0.05,
     },
 }
 

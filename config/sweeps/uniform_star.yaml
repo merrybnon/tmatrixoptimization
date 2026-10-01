@@ -1,0 +1,40 @@
+# A star-shaped constraint around U, for the uniform-optimum investigation
+# (src/tm_ml/uniform/).
+#
+# Rationale: with ŷ(enc U) anchored at 2000, the model's landscape becomes a
+# plateau at about 2000 between the data and U, and optimizers stop on it
+# 1.2–1.7 nats per row from U. The data say nothing about that region. If ŷ
+# rises along the segment from every matrix toward U, then U is the maximum,
+# strictly with a positive margin. lambda_star penalizes ŷ falling along
+# segments from the batch and from random matrices toward U, needing no labels.
+# That is the slides' claim, that mixing toward the well-mixed landscape never
+# lowers the effective population, written in as a shape constraint.
+#
+# Everything else is the reference run, seed 1, with the anchor at 10:
+# results/input_norm/TMVAE_b0p01-bw20-dg1-do0p1-enormfixed-e600-ll3-lff0p05-schcosine-s1_Tom1000
+#
+#   pixi run -e ml pipeline --configfile config/sweeps/uniform_star.yaml -c12 --resources gpu=3
+
+model:
+  d_latent: 8
+  d_global: 1
+  beta: 0.01
+  beta_warmup_epochs: 20
+  dropout: 0.1
+  lambda_log: 3.0
+  lambda_recon: 1.0
+  edge_norm: fixed
+  anchor_uniform: 10.0
+  lambda_star: [1.0, 10.0]
+  prop_cap: [0.0, 2200.0]
+
+training:
+  parent_path: uniform_star
+  seed: 1
+  epochs: 600
+  lr_schedule: cosine
+  lr_final_frac: 0.05
+  log_every: 50
+
+runtime:
+  gpu: auto

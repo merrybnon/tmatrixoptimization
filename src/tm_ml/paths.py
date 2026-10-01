@@ -141,6 +141,8 @@ ABBREV = {
     "anchor_target": "at",
     "prop_cap": "pcap",
     "prop_head": "phead",
+    "lambda_star": "lst",
+    "star_margin": "smg",
 }
 
 NAMED_SEPARATELY = frozenset({"model", "drop"})
@@ -196,6 +198,8 @@ NAME_BASELINE = {
         "anchor_target": 2000.0,
         "prop_cap": 0.0,
         "prop_head": "mlp",
+        "lambda_star": 0.0,
+        "star_margin": 0.05,
     },
 }
 
