@@ -13,7 +13,7 @@ set -euo pipefail
 cd "$(dirname "$0")"
 
 figs=("$@")
-if [ ${#figs[@]} -eq 0 ]; then figs=(tmvae); fi
+if [ ${#figs[@]} -eq 0 ]; then figs=(tmvae generic); fi
 
 for f in "${figs[@]}"; do
   f="${f%.tex}"

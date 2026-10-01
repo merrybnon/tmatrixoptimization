@@ -1,0 +1,33 @@
+% Generic encoder-latent-decoder model with a property predictor, laid out like
+% tmvae.tex: the autoencoder along the top and the predictor in a row beneath
+% the decoder, fed from the latent by an elbow down from its bottom edge.
+\documentclass[border=8pt, multi=tikzpicture]{standalone}
+\usepackage{arch}
+
+\begin{document}
+\begin{tikzpicture}[
+  big/.style  = {minimum width=2.3cm, minimum height=2.4cm, font=\small},
+  row/.style  = {flow},
+]
+
+% ------------------------------------------------------------- autoencoder --
+\node[iob, big]  (x)  at ( 0.00, 0) {Input};
+\node[enc, big]  (en) at ( 2.75, 0) {Encoder};
+\node[lat, big]  (z)  at ( 5.50, 0) {Latent};
+\node[enc, big]  (de) at ( 8.25, 0) {Decoder};
+\node[iob, big]  (xh) at (11.00, 0) {Output};
+
+% ----------------------------------------------------------------- predictor --
+\node[enc, big]  (pr) at ( 8.25, -3.0) {Predictor};
+\node[iob, big]  (yh) at (11.00, -3.0) {Property};
+
+% -------------------------------------------------------------------- arrows --
+\draw[row] (x)  -- (en);
+\draw[row] (en) -- (z);
+\draw[row] (z)  -- (de);
+\draw[row] (de) -- (xh);
+\draw[row] (z.south) |- (pr.west);
+\draw[row] (pr) -- (yh);
+
+\end{tikzpicture}
+\end{document}
