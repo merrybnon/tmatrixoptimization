@@ -42,6 +42,9 @@ class Context:
 
 
 def load(run=RUN):
+    # The box has 256 cores; left alone, torch takes them all and every script
+    # running beside a training job slows to a crawl.
+    torch.set_num_threads(8)
     run_dir, _, cfg, model, _, scaler, _ = evaluate_module.load_run(run, device="cpu")
     model64 = float64_copy(model)
     for p in model64.parameters():
