@@ -73,7 +73,9 @@ def diagnostics(run, starts=8, seed=0):
         L = torch.log(ctx.T.clamp_min(1e-300))
         L = torch.where(off, L, torch.zeros(()))
         L = (L - L.sum(-1, keepdim=True) / (common.N - 1))[:, off]
-        D = torch.cat([L[:150] / L[:150].norm(dim=1, keepdim=True), V[:150]])
+        # U itself, if the drop holds it, has no direction away from U.
+        L = L[L.norm(dim=1) > 0][:150]
+        D = torch.cat([L / L.norm(dim=1, keepdim=True), V[:150]])
         ring = 0.0
         for r in (10, 20, 40):
             T = torch.stack([logits_to_T(r * d) for d in D])

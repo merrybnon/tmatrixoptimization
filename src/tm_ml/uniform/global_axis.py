@@ -13,6 +13,8 @@ pre-norm decoder layers and the final LayerNorm see only its direction. The
 node terms shrink relative to g, which is what makes the nodes alike.
 """
 
+import argparse
+
 import numpy as np
 import torch
 
@@ -23,10 +25,11 @@ GRAPHS = 4
 
 
 def main():
-    ctx = common.load()
+    args = common.run_arg(argparse.ArgumentParser()).parse_args()
+    ctx = common.load(args.run)
     test = np.flatnonzero(ctx.split == "test")[:GRAPHS]
     g_data = ctx.mu_global[:, 0].numpy()
-    print(f"global over the 1000 graphs: {g_data.min():+.3f} … {g_data.max():+.3f}")
+    print(f"global over the {len(g_data)} graphs: {g_data.min():+.3f} … {g_data.max():+.3f}")
 
     for i in test:
         print(f"\ngraph {i}, y {np.exp(ctx.log_y[i]):.0f}, own global {g_data[i]:+.3f}")

@@ -3,12 +3,14 @@
 Three questions:
 
 1. How far is U from the training matrices? Measured by mean row KL to U and
-   the log₁₀ spread, against the same over the 1000 graphs.
+   the log₁₀ spread, against the same over the drop's other graphs.
 2. What does the model do with U? Its encoding, ŷ there, its reconstruction,
    and where its global and node latents fall against the data's.
 3. The fibre. Identical node latents decode to U whatever their value; how
    much does ŷ vary over them, inside the range the data occupies?
 """
+
+import argparse
 
 import numpy as np
 import torch
@@ -22,25 +24,36 @@ def percentile_of(value, sample):
 
 
 def main():
+    args = common.run_arg(argparse.ArgumentParser()).parse_args()
     torch.manual_seed(0)
-    ctx = common.load()
+    ctx = common.load(args.run)
     U = common.uniform((1,))
     y = np.exp(ctx.log_y)
     train = ctx.split == "train"
 
-    print("1. the data against U, over the 1000 graphs")
-    kl = common.nonuniformity(ctx.T).numpy()
+    # A drop may hold U itself as a labelled point (1000andUniform); the
+    # questions here are about the rest of the data, so exact copies of U are
+    # set aside and reported.
+    kl_all = common.nonuniformity(ctx.T).numpy()
+    is_U = np.abs(kl_all) < 1e-9
+    print(f"1. the data against U, over the {(~is_U).sum()} graphs other than U"
+          + (f" (U itself: index {np.flatnonzero(is_U).tolist()}, target "
+             f"{y[is_U][0]:.0f}, {ctx.split[is_U][0]})" if is_U.any() else ""))
+    keep = ~is_U
+    kl = np.where(keep, kl_all, np.inf)
     spread = common.log10_spread(ctx.T).numpy()
-    order = np.argsort(-y)
-    print(f"  mean row KL to U: min {kl.min():.3f}, median {np.median(kl):.3f}, max {kl.max():.3f}")
-    print(f"  log₁₀ spread:     min {spread.min():.3f}, median {np.median(spread):.3f}")
-    print(f"  target: max {y.max():.1f}, and above 1500: {(y > 1500).sum()} graphs")
+    order = np.argsort(-np.where(keep, y, -np.inf))
+    print(f"  mean row KL to U: min {kl[keep].min():.3f}, median {np.median(kl[keep]):.3f}, "
+          f"max {kl[keep].max():.3f}")
+    print(f"  log₁₀ spread:     min {spread[keep].min():.3f}, median {np.median(spread[keep]):.3f}")
+    print(f"  target: max {y[keep].max():.1f}, and above 1500: {(y[keep] > 1500).sum()} graphs")
     print("  the ten highest targets, with their KL to U and log₁₀ spread:")
     for i in order[:10]:
         print(f"    graph {i:4d} ({ctx.split[i]:>5})  y {y[i]:7.1f}  KL {kl[i]:.3f}  "
               f"spread {spread[i]:.3f}")
-    rho = np.corrcoef(np.argsort(np.argsort(kl)), np.argsort(np.argsort(ctx.log_y)))[0, 1]
-    print(f"  Spearman ρ(KL to U, y) over the 1000 graphs: {rho:+.3f}")
+    rho = np.corrcoef(np.argsort(np.argsort(kl[keep])),
+                      np.argsort(np.argsort(ctx.log_y[keep])))[0, 1]
+    print(f"  Spearman ρ(KL to U, y) over those graphs: {rho:+.3f}")
 
     print("\n2. U through the model")
     with torch.no_grad():

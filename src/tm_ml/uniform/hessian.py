@@ -13,6 +13,8 @@ same holds for it: U is a critical point of the real target, and the slides
 put it at the top.
 """
 
+import argparse
+
 import numpy as np
 import torch
 
@@ -46,7 +48,8 @@ def row_constant_basis():
 
 
 def main():
-    ctx = common.load()
+    args = common.run_arg(argparse.ArgumentParser()).parse_args()
+    ctx = common.load(args.run)
     x = torch.zeros(common.N * (common.N - 1), dtype=torch.float64)  # U
 
     xg = x.clone().requires_grad_(True)

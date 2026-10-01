@@ -84,11 +84,12 @@ def summarize(ctx, label, T, y, y0):
 
 def main():
     parser = argparse.ArgumentParser()
+    common.run_arg(parser)
     parser.add_argument("--starts", type=int, default=10)
     parser.add_argument("--maxiter", type=int, default=300)
     args = parser.parse_args()
 
-    ctx = common.load()
+    ctx = common.load(args.run)
     rng = np.random.default_rng(0)
     test = np.flatnonzero(ctx.split == "test")[:args.starts]
     off = ~np.eye(common.N, dtype=bool)

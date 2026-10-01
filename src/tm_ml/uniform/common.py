@@ -65,6 +65,12 @@ def load(run=RUN):
     return Context(model64, scaler, T, np.log(targets), mu, mu_global, split, out_dir)
 
 
+def run_arg(parser):
+    """Add ``--run``, defaulting to the reference run."""
+    parser.add_argument("--run", default=RUN, help="run directory name under results/")
+    return parser
+
+
 def uniform(batch=()):
     """The well-mixed matrix, 1/19 off the diagonal and 0 on it."""
     U = torch.full((N, N), 1.0 / (N - 1), dtype=torch.float64)

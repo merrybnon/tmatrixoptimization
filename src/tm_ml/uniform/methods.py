@@ -134,11 +134,12 @@ def score(ctx, x, agg):
 
 def main():
     parser = argparse.ArgumentParser()
+    common.run_arg(parser)
     parser.add_argument("--starts", type=int, default=10)
     parser.add_argument("--only", nargs="*")
     args = parser.parse_args()
 
-    ctx = common.load()
+    ctx = common.load(args.run)
     agg = AggregatePosterior(ctx)
     d = ctx.mu.shape[-1]
     print(f"aggregate-posterior −log q at the data: median {agg.data_median:.2f}, "
