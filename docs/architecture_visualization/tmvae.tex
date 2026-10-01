@@ -2,8 +2,8 @@
 % VAE along the top, the latent split into its per-node and graph-level parts,
 % boxed together, and the property predictor in a row beneath the decoder.
 % Both latents feed both the decoder and the predictor, so the arrows enter
-% and leave the box rather than either pill, and the predictor's elbow taps
-% the box's one outgoing arrow at a junction dot.
+% and leave the box rather than either pill, the predictor's by an elbow down
+% from its bottom edge.
 \documentclass[border=8pt, multi=tikzpicture]{standalone}
 \usepackage{arch}
 
@@ -42,8 +42,7 @@
 \draw[row] (zb) -- (dt);
 \draw[row] (dt) -- (hd);
 \draw[row] (hd) -- (xh);
-\draw[row] (7.75, 0) -- (7.75, -3.6) -- (pr.west);
-\fill[black!62] (7.75, 0) circle (1.6pt);
+\draw[row] (zb.south) |- (pr.west);
 \draw[row] (pr) -- (yh);
 
 \end{tikzpicture}
