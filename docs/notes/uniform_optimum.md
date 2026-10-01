@@ -366,6 +366,75 @@ unbounded predictor, and it costs R² (0.813 → 0.763 → 0.742) and reconstruc
 along it only by removing it. At β = 1 the whole posterior collapses and the predictor
 is a constant.
 
+## 10. U as a labelled training point: 1000andUniform
+
+2026-10-01. `data/raw/1000andUniform/` is Tom1000 with U added at target 2400, written
+by `make_drop.py`. U sits at index 1, in the training split for seeds 0, 1 and 2; the
+other 1000 matrices are Tom1000's, but every split differs from Tom1000's because n
+changed, so test R² compares across seeds and not graph for graph.
+`config/sweeps/uniform_drop.yaml` trains the reference settings on it.
+
+| seed | test R² | ŷ(enc U) | global KL | paths peaking at U |
+|---|---|---|---|---|
+| 0 | 0.763 | 2417 | 2.92 | 0 / 100 |
+| 1 | 0.833 | 2792 | 2.86 | 20 / 100 |
+| 2 | 0.720 | 2649 | 0.03, collapsed | 90 / 100 |
+
+Mean R² 0.772, the reference trio's exactly. The predictor fits the one new point to
+within its usual error (2792 against 2400 on seed 1).
+
+### What changed, seed 1
+
+- **The crater is gone.** Mixing the most uniform real graph toward U goes 1030 →
+  2742 → 2852 → 2760 → 2792, a plateau with a 2% bump, where the reference fell to 671.
+- **U is the top of the global axis.** Its encoding is +4.08, the maximum over the
+  drop; the other graphs keep roughly their old range, so σ over the test graphs went
+  0.54 → 0.76.
+- **The magnitudes fell 4–6×.** Matrix-space search ends at 5 × 10⁴ instead of
+  2–4 × 10⁵, reversible at 3–5 × 10⁴ instead of 1–2 × 10⁵.
+
+### What did not
+
+- **No honest search ends at U.** `compare.py`: matrix, reversible and landscape
+  searches end at U from 0 of 16 starts. Started at U itself, matrix search climbs away
+  to 22,000, and `basin.py` gives 0 / 8 even from 0.004 nats per row. The tie-break of
+  section 8 reaches U from 0 of 16 starts at every ε up to 3: the gap is too wide.
+- **The fibre is intact.** Identical node latents still decode to U and score 7 to
+  127,000.
+- **ŷ(z) still runs away along the global**, 10²¹ at g = +100 and 10¹⁸⁸ at g = 1000.
+- **The model rates even landscapes above U.** A 4 × 5 grid of points scores 3,513
+  and a circle 6,035, against 2,792 for U.
+
+Two latent methods now land on U more often: the data box, 8 of 11 starts (3 on the
+reference), and the aggregate-posterior density at λ = 0.1, 4 of 11 exactly and 3 more
+within KL 0.09. That is the global runaway meeting a wall, not ŷ preferring U. U's
+encoding now defines the top of the global's range, so it is the box's corner and the
+density's far edge, and a latent pushed there with its nodes collapsed decodes to U.
+ŷ(z) at those endpoints is 10⁵ to 10¹²; the honest score there is 2,792, while the same
+searches reach honest scores of 4,700 elsewhere.
+
+### Why one labelled point is not enough
+
+The label constrains ŷ at U and nowhere else. The matrices that score 5 × 10⁴ are
+1.6–2.2 nats per row from U, unlike any training matrix, and nothing in the loss
+reaches them. One example in 801 also carries 1/801 of an epoch's gradient; the anchor
+of section 7 is the same point with weight 10 on every batch, about 2,500 times the
+pull, and even that only flattened the landscape to 2,000–2,500 without making U the
+argmax. What did make U recoverable was the uniform_max head, which bounds ŷ
+everywhere, not a value at U.
+
+### The global traversal
+
+`traversal.py`, the same Tom1000 matrices in each run, t·σ from each matrix's own
+global, σ that run's spread over its test graphs. Inside the ±3σ the figure draws, the
+decoded matrices change as before, the pale weak-link bands fading as t rises, and ŷ
+climbs a little further (test example 1, the same graph in both runs: 186 → 1,173
+against 188 → 978). The difference is outside it. Scored through the encoder, the
+decoded matrix now climbs toward U's value and stays: graph 613 goes 1,143 at t = 0 →
+2,276 at 3σ → 2,833 at 6σ → 2,794 at 30σ, where the reference peaked at 1,300–1,700
+and fell back to 671 as the matrix became U. The global now runs from the data up to
+U and agrees with ŷ along the way; ŷ(z) still does not, growing without bound past U.
+
 ## Caveats
 
 - **Nothing here checks the truth.** Every ŷ is the model's. Whether U has the largest

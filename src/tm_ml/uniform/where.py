@@ -35,7 +35,7 @@ def main():
     # questions here are about the rest of the data, so exact copies of U are
     # set aside and reported.
     kl_all = common.nonuniformity(ctx.T).numpy()
-    is_U = np.abs(kl_all) < 1e-9
+    is_U = np.abs(kl_all) < 1e-6
     print(f"1. the data against U, over the {(~is_U).sum()} graphs other than U"
           + (f" (U itself: index {np.flatnonzero(is_U).tolist()}, target "
              f"{y[is_U][0]:.0f}, {ctx.split[is_U][0]})" if is_U.any() else ""))
