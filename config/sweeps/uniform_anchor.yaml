@@ -1,0 +1,41 @@
+# Telling the model what the slides say about U, for the uniform-optimum
+# investigation (src/tm_ml/uniform/).
+#
+# Rationale: the reference run scores the uniform matrix at 671 through its
+# encoder, where the slides put it at a_max = 20 × 100 = 2000, and every
+# optimizer that scores matrices honestly finds matrices it rates above 10⁴.
+# Two fixes, crossed:
+#
+# - anchor_uniform: (ŷ(enc U) − 2000)², weighted, on every training step. U is
+#   the one point off the data whose label the physics gives for free.
+# - prop_cap: log ŷ = c − softplus(c − s) with c = log 2200, just above the
+#   largest target (2041.6), so no matrix or latent can be scored past it.
+#
+# anchor 0 × cap 0 is the reference retrained under this code, as the control.
+# Everything else is the reference run, seed 1:
+# results/input_norm/TMVAE_b0p01-bw20-dg1-do0p1-enormfixed-e600-ll3-lff0p05-schcosine-s1_Tom1000
+#
+#   pixi run -e ml pipeline --configfile config/sweeps/uniform_anchor.yaml -c12 --resources gpu=3
+
+model:
+  d_latent: 8
+  d_global: 1
+  beta: 0.01
+  beta_warmup_epochs: 20
+  dropout: 0.1
+  lambda_log: 3.0
+  lambda_recon: 1.0
+  edge_norm: fixed
+  anchor_uniform: [0.0, 1.0, 10.0]
+  prop_cap: [0.0, 2200.0]
+
+training:
+  parent_path: uniform_anchor
+  seed: 1
+  epochs: 600
+  lr_schedule: cosine
+  lr_final_frac: 0.05
+  log_every: 50
+
+runtime:
+  gpu: auto

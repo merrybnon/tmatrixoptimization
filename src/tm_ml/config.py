@@ -109,6 +109,15 @@ MODEL_DEFAULTS = {
         # would also change both terms' weight relative to beta and gamma.
         "lambda_recon": 1.0,
         "lambda_recon_warmup_epochs": 0,
+        # Weight on (ŷ(enc U) − anchor_target)², U the uniform matrix, added to
+        # every training step. The slides put the well-mixed landscape at the
+        # top of the range, a_max = 20 × 100 = 2000, and U is far outside the
+        # data, so without it the predictor's value there is extrapolation.
+        "anchor_uniform": 0.0,
+        "anchor_target": 2000.0,
+        # A soft ceiling on the predicted effective population, in raw units:
+        # log ŷ = c − softplus(c − s). 0 leaves the predictor unbounded.
+        "prop_cap": 0.0,
     },
 }
 

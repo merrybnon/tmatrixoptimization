@@ -7,6 +7,7 @@ softmaxes, so every output is a valid transition matrix by construction. The
 predictor pools node latents, making it permutation invariant.
 """
 
+import math
 from dataclasses import dataclass
 
 import torch
@@ -48,6 +49,11 @@ class TMVAEConfig:
     # pressure. Explicit so the recon:log_recon ratio is an axis rather than a
     # side effect of scaling lambda_log.
     lambda_recon: float = 1.0
+    # See config.py. Both off by default; neither touches a run that leaves
+    # them there.
+    anchor_uniform: float = 0.0
+    anchor_target: float = 2000.0
+    prop_cap: float = 0.0
 
 
 @dataclass
@@ -409,6 +415,14 @@ class TMVAE(nn.Module):
             nn.GELU(),
             nn.Linear(cfg.predictor_hidden, 1),
         )
+        # The cap and the anchor are physical, so they are fixed in raw units,
+        # and the predictor works in standardized log y. Their standardized
+        # values depend on the training split's scaler, which `fit_target`
+        # writes here; nan until then, as with `Standardize`.
+        if cfg.prop_cap:
+            self.register_buffer("prop_cap_scaled", torch.tensor(float("nan")))
+        if cfg.anchor_uniform:
+            self.register_buffer("anchor_scaled", torch.tensor(float("nan")))
 
     @torch.no_grad()
     def fit_input_stats(self, T):
@@ -423,6 +437,14 @@ class TMVAE(nn.Module):
         if self.edge_in.fixed:
             e = edge_features(T, eps)[:, off_diagonal(T.shape[-1], T.device)]
             self.edge_in.net[0].fit(e.reshape(-1, N_EDGE_FEATURES))
+
+    @torch.no_grad()
+    def fit_target(self, scaler):
+        """Standardize the raw-unit cap and anchor with the run's target scaler."""
+        if self.config.prop_cap:
+            self.prop_cap_scaled.fill_(scaler.transform(math.log(self.config.prop_cap)))
+        if self.config.anchor_uniform:
+            self.anchor_scaled.fill_(scaler.transform(math.log(self.config.anchor_target)))
 
     def encode(self, T):
         """``T`` to per-node posteriors, plus the graph-level one if enabled."""
@@ -495,7 +517,11 @@ class TMVAE(nn.Module):
         Emits log(effective population), not the value itself: the target runs 48.8 to
         2041.6 and is right-skewed. The log is the caller's to take.
         """
-        return self.predictor(torch.cat([self.pool(z), z_global], dim=-1)).squeeze(-1)
+        out = self.predictor(torch.cat([self.pool(z), z_global], dim=-1)).squeeze(-1)
+        if self.config.prop_cap:
+            # c − softplus(c − s): the identity well below c, never above it.
+            out = self.prop_cap_scaled - F.softplus(self.prop_cap_scaled - out)
+        return out
 
     def forward(self, T, sample=True):
         """Encode, sample, decode and predict.
@@ -524,6 +550,23 @@ class TMVAE(nn.Module):
             logvar_global=logvar_global,
             z_global=z_global,
         )
+
+
+def uniform_matrix(n, device=None, dtype=torch.float32):
+    """The well-mixed chain: 1/(n − 1) off the diagonal, 0 on it."""
+    U = torch.full((n, n), 1.0 / (n - 1), device=device, dtype=dtype)
+    return U.fill_diagonal_(0.0)
+
+
+def anchor_loss(model, n, device):
+    """(ŷ(enc U) − anchor)² in standardized log y, from the posterior mean.
+
+    The mean rather than a sample: U encodes to identical node latents, and
+    the point is what the predictor says at that encoding.
+    """
+    dtype = next(model.parameters()).dtype
+    mu, _, mu_global, _ = model.encode(uniform_matrix(n, device, dtype)[None])
+    return (model.predict(mu, mu_global)[0] - model.anchor_scaled) ** 2
 
 
 def gaussian_kl(mu, logvar):

@@ -36,7 +36,7 @@ from tm_ml.config import (
 )
 from tm_ml.datasets import load_splits
 from tm_ml.ingest import git_commit
-from tm_ml.models import TMVAE, TMVAEConfig, tmvae_loss
+from tm_ml.models import TMVAE, TMVAEConfig, anchor_loss, tmvae_loss
 
 # The columns of history.csv, in order. Named once so the writer and the
 # per-epoch record cannot disagree.
@@ -97,10 +97,15 @@ def run_epoch(model, loader, model_cfg, device, optimizer=None, grad_clip=0.0):
             T, y = T.to(device), y.to(device)
             output = model(T, sample=training)
             loss = tmvae_loss(output, T, y, model_cfg)
+            total = loss.total
+            if model_cfg.anchor_uniform:
+                anchor = anchor_loss(model, T.shape[-1], device)
+                total = total + model_cfg.anchor_uniform * anchor
+                totals["anchor"] = totals.get("anchor", 0.0) + anchor.detach().item() * len(T)
 
             if training:
                 optimizer.zero_grad(set_to_none=True)
-                loss.total.backward()
+                total.backward()
                 if grad_clip > 0:
                     torch.nn.utils.clip_grad_norm_(model.parameters(), grad_clip)
                 optimizer.step()
@@ -186,6 +191,7 @@ def train(cfg):
     model_cfg = model_config(cfg, splits.n_nodes)
     model = TMVAE(model_cfg).to(device)
     model.fit_input_stats(splits.train.tensors[0].to(device))
+    model.fit_target(splits.scaler)
     optimizer = torch.optim.AdamW(
         model.parameters(), lr=cfg["lr"], weight_decay=cfg["weight_decay"]
     )
@@ -272,6 +278,7 @@ def train(cfg):
                 f"score {scores['val_score']:9.3f}  "
                 f"(recon {val_losses['recon']:8.3f}  kl {val_losses['kl']:7.3f}  "
                 f"prop {val_losses['prop']:7.4f}  log_recon {val_losses['log_recon']:6.3f})"
+                + (f"  anchor {val_losses['anchor']:.4f}" if "anchor" in val_losses else "")
                 + ("  *" if best["epoch"] == epoch else "")
             )
 
@@ -307,7 +314,9 @@ def train(cfg):
 
 def write_history(path, history):
     with open(path, "w", newline="") as handle:
-        writer = csv.DictWriter(handle, fieldnames=HISTORY_FIELDS)
+        # Optional terms, such as the uniform anchor, follow the fixed columns.
+        extra = [k for k in history[0] if k not in HISTORY_FIELDS] if history else []
+        writer = csv.DictWriter(handle, fieldnames=HISTORY_FIELDS + tuple(extra))
         writer.writeheader()
         writer.writerows(history)
 

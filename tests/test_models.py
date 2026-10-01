@@ -452,3 +452,32 @@ def test_lambda_recon_zero_leaves_a_well_posed_loss():
     )
     assert final.total.item() == without_recon.item()
     assert final.recon.item() != 0.0
+
+
+def test_prop_cap_bounds_every_latent():
+    """The softplus ceiling holds however far out the latent goes."""
+    from tm_ml.datasets import TargetScaler
+
+    model = make(n_nodes=6, d_global=1, prop_cap=2200.0)
+    scaler = TargetScaler(mean=5.7, std=0.6)
+    model.fit_target(scaler)
+    z = torch.randn(64, 6, 8, dtype=torch.float64) * 100
+    g = torch.randn(64, 1, dtype=torch.float64) * 1e4
+    log_y = scaler.inverse(model.predict(z, g))
+    assert (log_y <= np.log(2200.0) + 1e-12).all()
+
+
+def test_anchor_loss_is_zero_at_its_target():
+    """The anchor pulls ŷ(enc U) to anchor_target, in standardized units."""
+    from tm_ml.datasets import TargetScaler
+    from tm_ml.models import anchor_loss, uniform_matrix
+
+    model = make(n_nodes=6, d_global=1, anchor_uniform=1.0)
+    mu, _, mu_g, _ = model.encode(uniform_matrix(6, dtype=torch.float64)[None])
+    here = float(model.predict(mu, mu_g))
+    # A scaler that maps log(anchor_target) exactly onto the current prediction.
+    scaler = TargetScaler(mean=np.log(2000.0) - here, std=1.0)
+    model.fit_target(scaler)
+    assert float(anchor_loss(model, 6, "cpu")) == pytest.approx(0.0, abs=1e-20)
+    assert TMVAE(TMVAEConfig(n_nodes=6)).state_dict().keys().isdisjoint({"anchor_scaled",
+                                                                        "prop_cap_scaled"})

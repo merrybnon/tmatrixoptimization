@@ -1,0 +1,34 @@
+# The KL weight beta, for the uniform-optimum investigation (src/tm_ml/uniform/).
+#
+# Rationale: at beta 0.01 the aggregate posterior of the node latents matches
+# N(0, I) in moments but not in shape, so the prior penalty in the latent
+# optimization measures distance from the origin rather than from the data,
+# and its cheapest move is node collapse onto U. A larger beta should pull q(z)
+# toward the prior and shrink the room the predictor has to extrapolate in.
+#
+# Everything else is the reference run,
+# results/input_norm/TMVAE_b0p01-bw20-dg1-do0p1-enormfixed-e600-ll3-lff0p05-schcosine-s1_Tom1000,
+# seed 1 alone, so each run differs from it in beta only.
+#
+#   pixi run -e ml pipeline --configfile config/sweeps/uniform_beta.yaml -c8 --resources gpu=3
+
+model:
+  d_latent: 8
+  d_global: 1
+  beta: [0.1, 0.3, 1.0]
+  beta_warmup_epochs: 20
+  dropout: 0.1
+  lambda_log: 3.0
+  lambda_recon: 1.0
+  edge_norm: fixed
+
+training:
+  parent_path: uniform_beta
+  seed: 1
+  epochs: 600
+  lr_schedule: cosine
+  lr_final_frac: 0.05
+  log_every: 50
+
+runtime:
+  gpu: auto
