@@ -1,5 +1,6 @@
 % Transition-matrix VAE (TMVAE in src/tm_ml/models.py) as a block map: the whole
-% VAE along the top, the property predictor dropping down from the latent.
+% VAE along the top, the property predictor in a row beneath the decoder,
+% fed by one elbow down from the latent.
 \documentclass[border=8pt, multi=tikzpicture]{standalone}
 \usepackage{arch}
 
@@ -22,8 +23,8 @@
 \node[iob, big]  (xh) at (13.75, 0) {output $\hat{T}$};
 
 % ----------------------------------------------------------------- predictor --
-\node[enc, big]  (pr) at ( 5.50, -3.3) {Predictor};
-\node[iob, big]  (yh) at ( 5.50, -6.6) {output $\log\hat{y}$};
+\node[enc, big]  (pr) at ( 8.25, -3.6) {Predictor};
+\node[iob, big]  (yh) at (11.00, -3.6) {output $\log\hat{y}$};
 
 % -------------------------------------------------------------------- arrows --
 \draw[row] (x)  -- (eg);
@@ -31,7 +32,7 @@
 \draw[row] (z)  -- (dt);
 \draw[row] (dt) -- (hd);
 \draw[row] (hd) -- (xh);
-\draw[row] (z)  -- (pr);
+\draw[row] (z.south) |- (pr.west);
 \draw[row] (pr) -- (yh);
 
 \end{tikzpicture}
