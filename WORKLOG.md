@@ -606,3 +606,24 @@ Test split; the mean ± sd is over the three seeds, each seed its own split; the
 - Semi-supervised batches: pair each labelled batch with a freshly generated unlabeled one that carries only recon, log_recon and KL. It targets the encoder memorizing 800 graphs, which γ widened, and may let a high γ keep reconstruction.
 - A scale on the property's gradient into the encoder, 0 meaning the head trains on a detached latent, and an EMA of the weights for evaluation, since val prop jumps 0.24 ↔ 0.45 between epochs.
 - Five seeds or 5-fold CV before ranking any of these: the split-to-split sd in R² is 0.02–0.05, the size of the gains being chased.
+
+## 2026-10-01 — can optimization find the uniform matrix as the maximum?
+
+Branch `claude-optimization`, on `input_norm/…-enormfixed-…-s1_Tom1000`. The slides put the well-mixed landscape, U with 1/19 off the diagonal, at the top of the range, 20 × 100 = 2000. Full write-up with every table in `docs/notes/uniform_optimum.md`; scripts in `src/tm_ml/uniform/`.
+
+**On the model as it stands, no.** The model scores U at 671 through its encoder. Every method that reaches U does so through a decoder degeneracy: identical node latents always decode to U, and over the data's box those latents score 0.3 to 25,000, so the ŷ reported at U is whatever the penalty sets. Methods that score the decoded matrix honestly find matrices rated 10⁵. Three causes: U is 1.4 nats per row or more from every training matrix, ŷ(z) is not a function of the matrix, and the predictor is unbounded. Around U the model's landscape is a crater, a rim of 1100–2000 between the data and U.
+
+**The global.** Going up it does reach U, but only in the limit and in both directions: the global swamps each node's term in the decoder's first layer, so the nodes become identical. ŷ(z) meanwhile grows without bound.
+
+**β.** At 0.1 and 0.3, ŷ(enc U) rises to 1443 and 1558 and the global collapses, which ends the runaway along it, at a cost of 0.05–0.07 R² and much worse reconstruction. At 1 the posterior collapses. Neither touches the fibre or the unbounded predictor.
+
+**What recovers U.** A predictor head with its maximum at U by construction, `prop_head: uniform_max`, log ŷ = log 2000 − ‖A·(φ(x) − φ(x_U))‖², at unchanged R² (0.776 against 0.772 over three seeds). On its own its maximum is a surface through U, so searches stop 1.5 nats per row away. Adding a maximum-entropy tie-break, maximizing log ŷ(enc T) − ε·KL(T ‖ U), reaches U from all 16 starts at ε = 3, against 0 of 16 for the reference at any ε up to 3. An anchor on ŷ(enc U) flattens the 10⁵ blow-up to 2000–3000, and a star-shaped constraint makes every test path peak at U, but neither alone makes U the search's endpoint.
+
+**1000andUniform.** Tom1000 plus U at target 2400, U in training for seeds 0, 1 and 2. R² is unchanged, 0.772 over the three seeds. ŷ(enc U) = 2792, the crater turns into a plateau, U's encoding sits at the top of the global, +4.08 against +1.92 for the next graph, and the blow-up shrinks 4–6× to 5 × 10⁴. No honest search ends at U, the tie-break fails at every ε, and the fibre and the global runaway remain. One labelled point constrains ŷ at U and nowhere else. Inside ±3σ the global traversal looks as before; beyond it the decoded matrix's score now climbs to U's value instead of falling to 671.
+
+Nothing here is checked against the simulator, and "nothing exceeds the well-mixed value" is the slides' claim built into the head, not a theorem: strongly subdivided populations can have N_e above N_T.
+
+### Next steps
+- `prop_head: uniform_max` with `anchor_target: 2400` on `1000andUniform`, to see whether the labelled point and the head together need the tie-break at all.
+- Score the head models' landscape optima with the simulator: they are valid landscapes, the only optima here the generator can produce.
+- Seeds 0 and 2 through `compare.py` and `tiebreak.py` for the head runs.
