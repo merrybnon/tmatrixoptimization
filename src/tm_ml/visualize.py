@@ -10,9 +10,6 @@ so a figure is self-describing wherever it ends up:
 - ``predictions.png``     the property, predicted against true, on the test split
 - ``reconstruction.png``  example matrices, and error against the size of the
                           true entry, which is where forward KL is blind
-- ``spatial_graph.png``   example landscapes in space, positions recovered from
-                          T and from T̂ by inverting the generator, the
-                          reconstruction aligned to the truth
 - ``latent.png``          how many latent dimensions are actually carrying code
 - ``latent_property.png`` where graphs sit in the latent, coloured by the
                           property: the global against node-side axes, and
@@ -23,14 +20,11 @@ so a figure is self-describing wherever it ends up:
 - ``latent_property_3D.html`` the same as a page to turn and hover, plotly.js
                           embedded so it opens offline
 
-and into ``figures/interpolation_and_traversals/``:
+and into ``figures/traversals/``:
 
 - ``traversal_gbd.png``   decoded matrices stepping along the global dimension
 - ``traversal_PC1.png``   the same along sorted-160 PC1
 - ``traversal_PC2.png``   and PC2
-- ``interpolation.png``   straight lines between test graphs, nodes matched first
-- ``*_spatial.png``       each of the above with every decoded matrix drawn as
-                          the landscape it implies, as in ``spatial_graph.png``
 
 and into ``figures/optimization/``:
 
@@ -39,11 +33,6 @@ and into ``figures/optimization/``:
                           path, then the path in the graph-level latent views
 - ``minimize_g#.png``     the same descending
 - ``*_g#_unreg.png``      either with no penalty
-
-and into ``figures/optimization/spatial/``:
-
-- the same figures, each decoded matrix drawn as the landscape it implies,
-  as in ``spatial_graph.png``
 
 Reads `history.csv` and `metrics.json`, and re-runs the model for the examples,
 so it needs `evaluate.py` to have gone first.
@@ -61,7 +50,6 @@ import numpy as np
 import plotly.graph_objects as go
 import torch
 from plotly.subplots import make_subplots
-from scipy.optimize import linear_sum_assignment
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt  # noqa: E402
@@ -69,7 +57,7 @@ from matplotlib.colors import LogNorm, TwoSlopeNorm, to_hex  # noqa: E402
 from scipy.interpolate import RegularGridInterpolator  # noqa: E402
 
 from tm_ml import evaluate as evaluate_module
-from tm_ml import landscape, optimize, paths
+from tm_ml import optimize, paths
 from tm_ml.ingest import git_commit
 from tm_ml.models import TMVAEConfig, off_diagonal
 from tm_ml.style import (
@@ -80,7 +68,6 @@ from tm_ml.style import (
 N_EXAMPLES = 3
 # Traversal steps, in units of the axis's between-graph σ.
 TRAVERSAL_STEPS = np.arange(-3, 4)
-INTERPOLATION_STEPS = 7
 # Decoded matrices drawn along an optimization path.
 N_OPTIMIZATION_COLUMNS = 7
 # The weight λ on ‖x − x₀‖² for each optimization variant, the distance from
@@ -335,40 +322,6 @@ def reconstruction(data, metrics, out):
         )
     ax.legend(loc="upper right")
 
-    fig.tight_layout(rect=(0, 0.02, 1, 1))
-    footer(fig, metrics)
-    fig.savefig(out)
-    plt.close(fig)
-
-
-def spatial_graph(data, metrics, out):
-    """Example landscapes laid out in space, from T and from T̂.
-
-    Positions come from inverting the generator, `landscape.positions`. The
-    reconstruction keeps the input's node labels, so its layout is aligned onto
-    the true one by Procrustes on those labels, which settles the rotation,
-    reflection and shift that T alone leaves open. Both are scaled to fill the
-    unit square first, so the alignment does not fit a scale of its own.
-    """
-    fig, axes = plt.subplots(N_EXAMPLES, 2, figsize=(11.0, 5.4 * N_EXAMPLES))
-    for row in range(N_EXAMPLES):
-        T = data["T"][row].numpy().astype(np.float64)
-        T_hat = data["T_hat"][row].numpy().astype(np.float64)
-        true_xy, _ = landscape.positions(T)
-        recon_xy, _ = landscape.positions(T_hat)
-        recon_xy = landscape.align(recon_xy, true_xy, scale=False)
-        error = np.sqrt(((recon_xy - true_xy) ** 2).sum(axis=1).mean())
-        heaviest = max(T.max(), T_hat.max())
-        bounds = landscape.limits(true_xy, recon_xy)
-        for ax, matrix, xy, title in (
-            (axes[row, 0], T, true_xy, "true, positions from T"),
-            (axes[row, 1], T_hat, recon_xy,
-             f"reconstructed, from T̂ aligned to true — RMS offset {error:.3f}"),
-        ):
-            landscape.draw(ax, matrix, xy, heaviest, bounds)
-            ax.set_xlabel("x")
-            ax.set_title(title)
-        axes[row, 0].set_ylabel(f"test example {row}\n\ny", fontsize=8)
     fig.tight_layout(rect=(0, 0.02, 1, 1))
     footer(fig, metrics)
     fig.savefig(out)
@@ -818,7 +771,7 @@ def write_html(fig, metrics, out):
     fig.write_html(out, include_plotlyjs=True)
 
 
-def traversal(model, data, scaler, metrics, device, axis, out, spatial=False):
+def traversal(model, data, scaler, metrics, device, axis, out):
     """Decode along one latent axis from real encodings: test graphs by steps.
 
     Each row starts from one test graph's posterior mean — the same graphs
@@ -834,9 +787,6 @@ def traversal(model, data, scaler, metrics, device, axis, out, spatial=False):
     the nodes they came from — rank r of dimension d returns to the node that
     held rank r. Past a few σ values can cross ranks; the assignment is still
     by the original ranks, which is the only inverse the sort has.
-
-    ``spatial`` draws each decoded matrix as a landscape, aligned outward from
-    the reconstruction in the centre column.
     """
     mu = data["mu"].numpy()
     mu_global = data["mu_global"].numpy()
@@ -905,79 +855,8 @@ def traversal(model, data, scaler, metrics, device, axis, out, spatial=False):
             titles[row].append(f"{header}\n{value}" if row == 0 else value)
 
     labels = [f"test example {row}" for row in range(rows)]
-    if spatial:
-        draw_spatial_grid(decoded, titles, labels, centre, title, metrics, out)
-    else:
-        draw_matrix_grid(decoded, titles, labels, reconstruction_floor(data, rows),
-                         title, metrics, out)
-
-
-def align_nodes(mu_a, mu_b):
-    """The relabelling of B's nodes that puts them nearest A's, as an index array.
-
-    ``mu_b[align_nodes(mu_a, mu_b)]`` is B with node i matched to A's node i,
-    minimising the summed squared distance between paired node latents. The
-    node latent is a set, so slot i of two graphs are unrelated nodes until
-    this pairs them; anything combining two latents needs it first.
-    """
-    cost = ((mu_a[:, None, :] - mu_b[None, :, :]) ** 2).sum(-1)
-    rows, columns = linear_sum_assignment(cost)
-    return columns[np.argsort(rows)]
-
-
-def interpolation(model, data, scaler, metrics, device, out, spatial=False):
-    """Straight lines in latent space between test graphs, after node matching.
-
-    Row i runs from test example i to example i + 1, wrapping, so the three
-    rows are 0 → 1, 1 → 2 and 2 → 0 — the graphs `reconstruction.png` shows.
-    B's node latents are first relabelled onto A's by `align_nodes`; the global
-    is graph-level and interpolates as it is. Everything is drawn in A's node
-    order, so the right end is B's reconstruction permuted by the match, which
-    the decoder's equivariance makes exact.
-
-    ``spatial`` draws each decoded matrix as a landscape, aligned outward from
-    A's reconstruction on the left.
-    """
-    mu = data["mu"].numpy()
-    mu_global = data["mu_global"].numpy()
-    log_y = scaler.inverse(data["y"].numpy())
-    rows = min(N_EXAMPLES, len(mu))
-    if rows < 2:
-        return placeholder(metrics, out, "Interpolation — needs 2+ test graphs")
-    alpha = np.linspace(0.0, 1.0, INTERPOLATION_STEPS)[:, None, None]
-    true = np.exp(log_y[:rows])
-
-    decoded, titles, labels = [], [], []
-    for row in range(rows):
-        a, b = row, (row + 1) % rows
-        matched = mu[b][align_nodes(mu[a], mu[b])]
-        z = (1 - alpha) * mu[a] + alpha * matched
-        z_global = (1 - alpha[:, 0]) * mu_global[a] + alpha[:, 0] * mu_global[b]
-        log_T_hat, predicted = decode_batch(model, device, scaler, z, z_global)
-        decoded.append(log_T_hat)
-
-        # Mean distance between paired node latents, as labelled and as matched.
-        raw = np.linalg.norm(mu[a] - mu[b], axis=-1).mean()
-        aligned = np.linalg.norm(mu[a] - matched, axis=-1).mean()
-        labels.append(f"test {a} → {b}\nnode dist {raw:.2f} → {aligned:.2f}")
-
-        titles.append([])
-        for column, step in enumerate(alpha[:, 0, 0]):
-            value = f"ŷ {predicted[column]:.0f}"
-            if column in (0, INTERPOLATION_STEPS - 1):
-                value += f"  ·  true {true[a if column == 0 else b]:.0f}"
-            # The row label names the pair; a header naming it would fit row 0 only.
-            header = (f"α = {step:.0f}" if column in (0, INTERPOLATION_STEPS - 1)
-                      else f"α = {column}/{INTERPOLATION_STEPS - 1}")
-            titles[row].append(f"{header}\n{value}" if row == 0 else value)
-
-    title = ("Interpolation: z = (1 − α)·μ_A + α·P·μ_B, P the node match; "
-             "global z_g interpolated unmatched")
-    if spatial:
-        draw_spatial_grid(decoded, titles, labels, 0, title, metrics, out)
-    else:
-        draw_matrix_grid(decoded, titles, labels, reconstruction_floor(data, rows),
-                         title, metrics, out)
+    draw_matrix_grid(decoded, titles, labels, reconstruction_floor(data, rows),
+                     title, metrics, out)
 
 
 def graph_views(mu, mu_global, log_y, metrics):
@@ -1099,7 +978,7 @@ def decay_text(log_y):
     return f"10^{exponent:.1f}" if abs(exponent) < 1e4 else f"10^({exponent:.3g})"
 
 
-def optimization(model, data, scaler, metrics, device, graph, lam, sense, out, spatial=False,
+def optimization(model, data, scaler, metrics, device, graph, lam, sense, out,
                  search=optimize.search):
     """BFGS from one test graph: its decoded path, then the path in latent space.
 
@@ -1112,8 +991,7 @@ def optimization(model, data, scaler, metrics, device, graph, lam, sense, out, s
     the top colour, or the bottom one when minimizing, and its final value is
     written on the panel instead. ``sense`` is +1 to ascend, −1 to descend.
 
-    ``spatial`` draws each decoded matrix as a landscape, aligned outward from
-    the start. ``search`` runs the BFGS, so the two views can share one run.
+    ``search`` runs the BFGS.
     """
     mu = data["mu"].numpy()
     mu_global = data["mu_global"].numpy()
@@ -1137,22 +1015,10 @@ def optimization(model, data, scaler, metrics, device, graph, lam, sense, out, s
     top = outer[0].subgridspec(1, N_OPTIMIZATION_COLUMNS + 1,
                                width_ratios=[1] * N_OPTIMIZATION_COLUMNS + [0.05], wspace=0.12)
     floor = reconstruction_floor(data, N_EXAMPLES)
-    if spatial:
-        # As `draw_spatial_grid`: each layout onto its aligned neighbour, from the start.
-        matrices = [np.nan_to_num(10.0 ** m.astype(np.float64)) for m in decoded]
-        layouts = [landscape.positions(T)[0] for T in matrices]
-        for column in range(1, len(layouts)):
-            layouts[column] = landscape.align(layouts[column], layouts[column - 1], scale=False)
-        bounds = landscape.limits(*layouts)
-        heaviest = max(T.max() for T in matrices)
     for column, (k, matrix) in enumerate(zip(columns, decoded)):
         ax = fig.add_subplot(top[column])
-        if spatial:
-            landscape.draw(ax, matrices[column], layouts[column], heaviest, bounds,
-                           width_max=2.2, node_size=45, label_size=4.5)
-        else:
-            image = ax.imshow(matrix, cmap=SEQUENTIAL, vmin=floor, vmax=0.0,
-                              interpolation="nearest")
+        image = ax.imshow(matrix, cmap=SEQUENTIAL, vmin=floor, vmax=0.0,
+                          interpolation="nearest")
         ax.set_xticks([])
         ax.set_yticks([])
         ax.grid(False)
@@ -1162,10 +1028,9 @@ def optimization(model, data, scaler, metrics, device, graph, lam, sense, out, s
         if k == 0:
             text += f"  ·  true {decay[graph]:.0f}"
         ax.set_title(text, fontsize=9)
-    if not spatial:
-        bar = fig.colorbar(image, cax=fig.add_subplot(top[N_OPTIMIZATION_COLUMNS]))
-        bar.set_label("log₁₀ T̂", fontsize=8, color=INK_SOFT)
-        bar.ax.tick_params(labelsize=7)
+    bar = fig.colorbar(image, cax=fig.add_subplot(top[N_OPTIMIZATION_COLUMNS]))
+    bar.set_label("log₁₀ T̂", fontsize=8, color=INK_SOFT)
+    bar.ax.tick_params(labelsize=7)
 
     lower = outer[1].subgridspec(n_rows, 5, width_ratios=[1, 1, 1, 1, 0.05],
                                  wspace=0.32, hspace=0.42)
@@ -1225,8 +1090,7 @@ def optimization(model, data, scaler, metrics, device, graph, lam, sense, out, s
     sign, direction = ("−", "ascent") if sense > 0 else ("+", "descent")
     objective = (f"f(x) = {sign}log ŷ(x), unregularized" if lam == 0
                  else f"f(x) = {sign}log ŷ(x) + (λ/2)·‖x − x₀‖², λ = {lam:g}")
-    edges = "   |   edge width ∝ T̂_ij" if spatial else ""
-    fig.suptitle(f"BFGS latent {direction} from test example {graph}: {objective}{edges}",
+    fig.suptitle(f"BFGS latent {direction} from test example {graph}: {objective}",
                  fontsize=12, color=INK, x=0.005, ha="left")
     footer(fig, metrics)
     fig.savefig(out)
@@ -1280,47 +1144,6 @@ def draw_matrix_grid(decoded, titles, row_labels, floor, title, metrics, out):
     plt.close(fig)
 
 
-def draw_spatial_grid(decoded, titles, row_labels, anchor, title, metrics, out):
-    """Rows of decoded matrices as spatial graphs, each row on shared axes.
-
-    A row keeps its node labels from column to column, so each layout is
-    aligned by Procrustes onto its already-aligned neighbour, working outward
-    from the ``anchor`` column. Chaining keeps a smooth path from flipping where
-    a far column would match the anchor poorly. Edge widths share one scale per
-    row, set by its heaviest entry.
-    """
-    rows, columns = len(decoded), len(decoded[0])
-    height = 2.5 * rows + 1.1
-    fig = plt.figure(figsize=(18, height))
-    grid = fig.add_gridspec(rows, columns, left=0.045, right=0.99,
-                            top=1 - 0.95 / height, bottom=0.3 / height,
-                            wspace=0.08, hspace=0.32)
-    for row in range(rows):
-        matrices = [np.nan_to_num(10.0 ** m.astype(np.float64)) for m in decoded[row]]
-        layouts = [landscape.positions(T)[0] for T in matrices]
-        for column in list(range(anchor + 1, columns)) + list(range(anchor - 1, -1, -1)):
-            neighbour = column - 1 if column > anchor else column + 1
-            layouts[column] = landscape.align(layouts[column], layouts[neighbour], scale=False)
-        bounds = landscape.limits(*layouts)
-        heaviest = max(T.max() for T in matrices)
-        for column in range(columns):
-            ax = fig.add_subplot(grid[row, column])
-            landscape.draw(ax, matrices[column], layouts[column], heaviest, bounds,
-                           width_max=2.2, node_size=45, label_size=4.5)
-            ax.set_xticks([])
-            ax.set_yticks([])
-            ax.grid(False)
-            ax.set_title(titles[row][column], fontsize=9)
-            if column == 0:
-                ax.set_ylabel(row_labels[row], fontsize=8)
-
-    fig.suptitle(f"{title}   |   ŷ is the predicted effective population, edge width ∝ T̂_ij",
-                 fontsize=12, color=INK, x=0.005, ha="left")
-    footer(fig, metrics)
-    fig.savefig(out)
-    plt.close(fig)
-
-
 def placeholder(metrics, out, message):
     """A figure that says why there is nothing to draw, so every run has the file."""
     fig = plt.figure(figsize=(8, 2.4))
@@ -1351,16 +1174,11 @@ def visualize(run, num_threads=1):
     traversals = figures / paths.TRAVERSALS
     optimizations = figures / paths.OPTIMIZATION
     traversals.mkdir(parents=True, exist_ok=True)
-    (optimizations / paths.OPTIMIZATION_SPATIAL).mkdir(parents=True, exist_ok=True)
-    # Each BFGS run is drawn twice, as matrices and as landscapes; run it once.
-    # Keyed by (graph, λ, sense), which fixes the run; the arrays cannot be hashed.
-    search = functools.cache(lambda graph, lam, sense: optimize.search(
-        model, scaler, data["mu"][graph].numpy(), data["mu_global"][graph].numpy(), lam, sense))
+    optimizations.mkdir(parents=True, exist_ok=True)
     diagnostics = {
         "training_curve": lambda p: training_curve(history, metrics, p),
         "predictions": lambda p: predictions(data, scaler, metrics, p),
         "reconstruction": lambda p: reconstruction(data, metrics, p),
-        "spatial_graph": lambda p: spatial_graph(data, metrics, p),
         "latent": lambda p: latent(metrics, p),
         "latent_property": lambda p: latent_property(data, scaler, metrics, p),
         "latent_property_3D": lambda p: latent_property_3D(pdp(), metrics, p),
@@ -1372,25 +1190,14 @@ def visualize(run, num_threads=1):
     jobs += [(figures / f"{name}.html", interactive[name])
              for name in paths.INTERACTIVE_FIGURES]
     jobs += [
-        (traversals / f"traversal_{axis}{view}.png",
-         lambda p, a=axis, v=view: traversal(model, data, scaler, metrics, device, a, p,
-                                             spatial=v == paths.SPATIAL))
-        for axis in paths.TRAVERSAL_AXES for view in paths.PATH_VIEWS
+        (traversals / f"traversal_{axis}.png",
+         lambda p, a=axis: traversal(model, data, scaler, metrics, device, a, p))
+        for axis in paths.TRAVERSAL_AXES
     ]
-    interpolations = {
-        "interpolation": lambda p, spatial: interpolation(model, data, scaler, metrics,
-                                                          device, p, spatial),
-    }
-    jobs += [(traversals / f"{name}{view}.png",
-              lambda p, n=name, v=view: interpolations[n](p, v == paths.SPATIAL))
-             for name in paths.INTERPOLATIONS for view in paths.PATH_VIEWS]
     jobs += [
-        (optimizations / folder / f"{sense}_g{graph}{variant}.png",
-         lambda p, g=graph, lam=OPTIMIZATION_LAMBDA[variant], s=OPTIMIZATION_SENSE[sense],
-                spatial=bool(folder):
-             optimization(model, data, scaler, metrics, device, g, lam, s, p, spatial,
-                          lambda *_, g=g, lam=lam, s=s: search(g, lam, s)))
-        for folder in ("", paths.OPTIMIZATION_SPATIAL)
+        (optimizations / f"{sense}_g{graph}{variant}.png",
+         lambda p, g=graph, lam=OPTIMIZATION_LAMBDA[variant], s=OPTIMIZATION_SENSE[sense]:
+             optimization(model, data, scaler, metrics, device, g, lam, s, p))
         for sense in paths.OPTIMIZATION_SENSES
         for graph in paths.OPTIMIZATION_GRAPHS for variant in paths.OPTIMIZATION_VARIANTS
     ]
