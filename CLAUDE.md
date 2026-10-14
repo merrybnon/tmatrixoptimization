@@ -12,7 +12,7 @@ Python dependencies are managed with pixi. Python commands should be run with pi
 
 - `config/` — `sweeps/` holds one YAML per sweep
 - `workflow/` — `Snakefile` chaining ingest → train → evaluate → visualize → benchmarks
-- `src/tm_ml/` — the package: `ingest.py`, `datasets.py`, `models.py`, `train.py`, `evaluate.py`, `visualize.py`, `benchmarks.py`, `config.py`, `paths.py`, `device.py`
+- `src/tm_ml/` — the package: `ingest.py`, `datasets.py`, `models.py`, `train.py`, `evaluate.py`, `visualize.py`, `optimize.py`, `style.py`, `benchmarks.py`, `config.py`, `paths.py`, `device.py`
 - `data/` — gitignored; `raw/` the untouched external drop, `processed/` the canonical arrays plus `meta.json` provenance
 - `results/` — gitignored run directories, named from the determining hyperparameters, except the example `gamma_sweep/`
 - `docs/` — `benchmarks/` (run sizing and results CSV), `notes/`
