@@ -1,17 +1,11 @@
-# The property weight gamma, replicated over three seeds.
+# This config sweeps over different values of γ.
 #
-# Rationale: the property overfits (train prop ~0.07 against val prop 0.15-0.25
-# at epoch 600) while gamma has sat at 1 on every run. The recon_ratio sweep is
-# nearly a gamma sweep, since Adam is near scale-invariant in the total and
-# lowering lambda_recon raises gamma against the reconstruction block: at
-# lambda_recon 0.25 and 0, R2 rose on every seed, by ~0.05. Raising gamma also
-# moves checkpoint selection toward the property, which prop's ~0.2 of a ~2.7
-# val_score barely steers today. The expected cost is reconstruction.
+#   L = λ_recon·recon + β·kl + γ·prop + λ_log·log_recon
 #
-# Everything else is the fixed-edge, layernorm-node cell of input_norm.yaml.
-# gamma = 1 is left out on purpose: parent_path is not determining, so it
-# would retrain those runs under a new folder. The control is
-# results/input_norm/TMVAE_b0p01-bw20-dg1-do0p1-enormfixed-e600-ll3-lff0p05-schcosine{,-s1,-s2}_Tom1000.
+#   recon     = Σ_i Σ_{j≠i} T_ij (log T_ij − log T̂_ij)
+#   kl        = KL(q(z|T) ‖ N(0, I))
+#   prop      = (log ŷ − log y)²
+#   log_recon = mean_{i≠j} |log T_ij − log T̂_ij|
 #
 #   pixi run -e ml pipeline --configfile config/sweeps/gamma.yaml -c8 --resources gpu=1 -n
 #   pixi run -e ml pipeline --configfile config/sweeps/gamma.yaml -c8 --resources gpu=1
