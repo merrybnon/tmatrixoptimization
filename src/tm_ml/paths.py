@@ -129,7 +129,6 @@ ABBREV = {
     # Not "lr*": that prefix is the learning rate's.
     "lambda_recon": "lrec",
     "lambda_recon_warmup_epochs": "lrecw",
-    "prop_cap": "pcap",
 }
 
 NAMED_SEPARATELY = frozenset({"model", "drop"})
@@ -179,8 +178,6 @@ NAME_BASELINE = {
         # Added 2026-09-28. LayerNorm is what every earlier run used.
         "node_norm": "layernorm",
         "edge_norm": "layernorm",
-        # Added 2026-09-30. Off, as every earlier run trained.
-        "prop_cap": 0.0,
     },
 }
 

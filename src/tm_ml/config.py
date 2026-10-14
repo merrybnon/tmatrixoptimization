@@ -109,9 +109,6 @@ MODEL_DEFAULTS = {
         # would also change both terms' weight relative to beta and gamma.
         "lambda_recon": 1.0,
         "lambda_recon_warmup_epochs": 0,
-        # A soft ceiling on the predicted effective population, in raw units:
-        # log ŷ = c − softplus(c − s). 0 leaves the predictor unbounded.
-        "prop_cap": 0.0,
     },
 }
 

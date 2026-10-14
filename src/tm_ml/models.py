@@ -7,7 +7,6 @@ softmaxes, so every output is a valid transition matrix by construction. The
 predictor pools node latents, making it permutation invariant.
 """
 
-import math
 from dataclasses import dataclass
 
 import torch
@@ -49,9 +48,6 @@ class TMVAEConfig:
     # pressure. Explicit so the recon:log_recon ratio is an axis rather than a
     # side effect of scaling lambda_log.
     lambda_recon: float = 1.0
-    # See config.py. Off by default, and does not touch a run that leaves it
-    # there.
-    prop_cap: float = 0.0
 
 
 @dataclass
@@ -413,12 +409,6 @@ class TMVAE(nn.Module):
             nn.GELU(),
             nn.Linear(cfg.predictor_hidden, 1),
         )
-        # The cap is physical, so it is fixed in raw units, and the predictor
-        # works in standardized log y. Its standardized value depends on the
-        # training split's scaler, which `fit_target` writes here; nan until
-        # then, as with `Standardize`.
-        if cfg.prop_cap:
-            self.register_buffer("prop_cap_scaled", torch.tensor(float("nan")))
 
     @torch.no_grad()
     def fit_input_stats(self, T):
@@ -433,12 +423,6 @@ class TMVAE(nn.Module):
         if self.edge_in.fixed:
             e = edge_features(T, eps)[:, off_diagonal(T.shape[-1], T.device)]
             self.edge_in.net[0].fit(e.reshape(-1, N_EDGE_FEATURES))
-
-    @torch.no_grad()
-    def fit_target(self, scaler):
-        """Standardize the raw-unit cap with the run's target scaler."""
-        if self.config.prop_cap:
-            self.prop_cap_scaled.fill_(scaler.transform(math.log(self.config.prop_cap)))
 
     def encode(self, T):
         """``T`` to per-node posteriors, plus the graph-level one if enabled."""
@@ -512,11 +496,7 @@ class TMVAE(nn.Module):
         2041.6 and is right-skewed. The log is the caller's to take.
         """
         x = torch.cat([self.pool(z), z_global], dim=-1)
-        out = self.predictor(x).squeeze(-1)
-        if self.config.prop_cap:
-            # c − softplus(c − s): the identity well below c, never above it.
-            out = self.prop_cap_scaled - F.softplus(self.prop_cap_scaled - out)
-        return out
+        return self.predictor(x).squeeze(-1)
 
     def forward(self, T, sample=True):
         """Encode, sample, decode and predict.
