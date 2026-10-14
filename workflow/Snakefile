@@ -27,7 +27,6 @@ import re
 
 from tm_ml.config import expand_sweep
 from tm_ml.ingest import RAW_DIR, find_source
-from tm_ml.architecture import RENDERED as ARCH_SVG, SOURCE as ARCH_SOURCE
 from tm_ml.paths import (DIAGNOSTIC_FIGURES, FIGURES, INTERACTIVE_FIGURES, INTERPOLATIONS,
                          OPTIMIZATION, OPTIMIZATION_SPATIAL, OPTIMIZATIONS, PATH_VIEWS, TRAVERSAL_AXES, TRAVERSALS,
                          run_path)
@@ -62,7 +61,6 @@ FIGURE_FILES = [f"{FIGURES}/{name}.png" for name in DIAGNOSTIC_FIGURES] + [
 ] + [
     f"{FIGURES}/{OPTIMIZATION}/{OPTIMIZATION_SPATIAL}/{name}.png" for name in OPTIMIZATIONS
 ]
-ARCHITECTURE_FILES = [f"{FIGURES}/{ARCH_SOURCE}", f"{FIGURES}/{ARCH_SVG}"]
 
 
 # Without these a wildcard spans slashes, so `results/{run}/best.pt` would match
@@ -79,7 +77,6 @@ rule all:
         expand("data/processed/{drop}/meta.json", drop=DROPS),
         expand("results/{run}/metrics.json", run=list(RUNS)),
         expand("results/{run}/{figure}", run=list(RUNS), figure=FIGURE_FILES),
-        expand("results/{run}/{figure}", run=list(RUNS), figure=ARCHITECTURE_FILES),
         [BENCHMARKS_CSV] if RUNS else [],
 
 
@@ -196,28 +193,6 @@ rule visualize:
     shell:
         "python -u -m tm_ml.visualize --run {wildcards.run} --num_threads {threads} "
         "2>&1 | tee {log}"
-
-
-rule architecture:
-    """The run's architecture as Mermaid source plus an SVG render.
-
-    Reads only the checkpoint, on the cpu, so it holds no gpu token and runs
-    as soon as training finishes. The render goes through npx, which needs
-    network access the first time it fetches mermaid-cli.
-    """
-    input:
-        checkpoint="results/{run}/best.pt",
-        src=[f"{PKG}/architecture.py", f"{PKG}/models.py"],
-    output:
-        expand("results/{{run}}/{figure}", figure=ARCHITECTURE_FILES),
-    log:
-        "results/{run}/logs/architecture.log",
-    threads: 1
-    resources:
-        mem_mb=2000,
-        runtime=10,
-    shell:
-        "python -u -m tm_ml.architecture --run {wildcards.run} 2>&1 | tee {log}"
 
 
 rule benchmarks:
