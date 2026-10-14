@@ -14,10 +14,6 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-PROP_HEADS = ("mlp", "uniform_max")
-# Rank of the quadratic form in the uniform_max head.
-UNIFORM_PROJ = 16
-
 N_NODE_FEATURES = 5
 N_EDGE_FEATURES = 5
 
@@ -53,14 +49,9 @@ class TMVAEConfig:
     # pressure. Explicit so the recon:log_recon ratio is an axis rather than a
     # side effect of scaling lambda_log.
     lambda_recon: float = 1.0
-    # See config.py. Both off by default; neither touches a run that leaves
-    # them there.
-    anchor_uniform: float = 0.0
-    anchor_target: float = 2000.0
+    # See config.py. Off by default, and does not touch a run that leaves it
+    # there.
     prop_cap: float = 0.0
-    prop_head: str = "mlp"
-    lambda_star: float = 0.0
-    star_margin: float = 0.05
 
 
 @dataclass
@@ -422,24 +413,12 @@ class TMVAE(nn.Module):
             nn.GELU(),
             nn.Linear(cfg.predictor_hidden, 1),
         )
-        # The cap and the anchor are physical, so they are fixed in raw units,
-        # and the predictor works in standardized log y. Their standardized
-        # values depend on the training split's scaler, which `fit_target`
-        # writes here; nan until then, as with `Standardize`.
+        # The cap is physical, so it is fixed in raw units, and the predictor
+        # works in standardized log y. Its standardized value depends on the
+        # training split's scaler, which `fit_target` writes here; nan until
+        # then, as with `Standardize`.
         if cfg.prop_cap:
             self.register_buffer("prop_cap_scaled", torch.tensor(float("nan")))
-        if cfg.anchor_uniform or cfg.prop_head == "uniform_max":
-            self.register_buffer("anchor_scaled", torch.tensor(float("nan")))
-        if cfg.prop_head not in PROP_HEADS:
-            raise ValueError(f"unknown prop_head {cfg.prop_head!r}; expected one of {PROP_HEADS}")
-        # uniform_max: log ŷ = anchor − ‖A(φ(x) − φ(x_U))‖², φ the predictor's
-        # hidden layers and x_U the pooled encoding of U. ŷ(enc U) is the
-        # anchor by construction and nothing scores above it. The MLP's last
-        # Linear is unused under this head.
-        self.uniform_proj = (
-            nn.Linear(cfg.predictor_hidden, UNIFORM_PROJ, bias=False)
-            if cfg.prop_head == "uniform_max" else None
-        )
 
     @torch.no_grad()
     def fit_input_stats(self, T):
@@ -457,11 +436,9 @@ class TMVAE(nn.Module):
 
     @torch.no_grad()
     def fit_target(self, scaler):
-        """Standardize the raw-unit cap and anchor with the run's target scaler."""
+        """Standardize the raw-unit cap with the run's target scaler."""
         if self.config.prop_cap:
             self.prop_cap_scaled.fill_(scaler.transform(math.log(self.config.prop_cap)))
-        if self.config.anchor_uniform or self.config.prop_head == "uniform_max":
-            self.anchor_scaled.fill_(scaler.transform(math.log(self.config.anchor_target)))
 
     def encode(self, T):
         """``T`` to per-node posteriors, plus the graph-level one if enabled."""
@@ -535,13 +512,6 @@ class TMVAE(nn.Module):
         2041.6 and is right-skewed. The log is the caller's to take.
         """
         x = torch.cat([self.pool(z), z_global], dim=-1)
-        if self.uniform_proj is not None:
-            mu_U, _, g_U, _ = self.encode(
-                uniform_matrix(z.shape[1], z.device, z.dtype)[None])
-            x_U = torch.cat([self.pool(mu_U), g_U], dim=-1)
-            phi = self.predictor[:-1]
-            gap = self.uniform_proj(phi(x) - phi(x_U))
-            return self.anchor_scaled - gap.pow(2).sum(-1)
         out = self.predictor(x).squeeze(-1)
         if self.config.prop_cap:
             # c − softplus(c − s): the identity well below c, never above it.
@@ -575,48 +545,6 @@ class TMVAE(nn.Module):
             logvar_global=logvar_global,
             z_global=z_global,
         )
-
-
-def uniform_matrix(n, device=None, dtype=torch.float32):
-    """The well-mixed chain: 1/(n − 1) off the diagonal, 0 on it."""
-    U = torch.full((n, n), 1.0 / (n - 1), device=device, dtype=dtype)
-    return U.fill_diagonal_(0.0)
-
-
-def anchor_loss(model, n, device):
-    """(ŷ(enc U) − anchor)² in standardized log y, from the posterior mean.
-
-    The mean rather than a sample: U encodes to identical node latents, and
-    the point is what the predictor says at that encoding.
-    """
-    dtype = next(model.parameters()).dtype
-    mu, _, mu_global, _ = model.encode(uniform_matrix(n, device, dtype)[None])
-    return (model.predict(mu, mu_global)[0] - model.anchor_scaled) ** 2
-
-
-def star_loss(model, T, margin):
-    """Penalize ŷ falling along segments toward U, in standardized log y.
-
-    For each matrix T, two points s₁ < s₂ on T(s) = (1 − s)·T + s·U, and
-    relu(ŷ(T(s₁)) − ŷ(T(s₂)) + margin·(s₂ − s₁)). Zero for every segment
-    exactly when ŷ rises toward U at a rate of at least ``margin``, and a ŷ
-    that rises along the segment from every T to U has its maximum at U.
-    Half the segments start from the batch, half from random row-stochastic
-    matrices, so the constraint reaches past the data. No labels needed.
-    """
-    B, n = T.shape[0], T.shape[-1]
-    off = off_diagonal(n, T.device)
-    scale = torch.rand(B, 1, 1, device=T.device, dtype=T.dtype) * 6.0
-    logits = torch.randn(B, n, n, device=T.device, dtype=T.dtype) * scale
-    random_T = F.softmax(logits.masked_fill(~off, float("-inf")), dim=-1)
-    start = torch.cat([T, random_T])
-    s = torch.rand(2, len(start), 1, 1, device=T.device, dtype=T.dtype).sort(0).values
-    U = uniform_matrix(n, T.device, T.dtype)
-    ends = torch.cat([(1 - s[0]) * start + s[0] * U, (1 - s[1]) * start + s[1] * U])
-    mu, _, mu_global, _ = model.encode(ends)
-    y1, y2 = model.predict(mu, mu_global).chunk(2)
-    gap = (s[1] - s[0]).flatten()
-    return F.relu(y1 - y2 + margin * gap).mean()
 
 
 def gaussian_kl(mu, logvar):

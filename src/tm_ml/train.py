@@ -36,7 +36,7 @@ from tm_ml.config import (
 )
 from tm_ml.datasets import load_splits
 from tm_ml.ingest import git_commit
-from tm_ml.models import TMVAE, TMVAEConfig, anchor_loss, star_loss, tmvae_loss
+from tm_ml.models import TMVAE, TMVAEConfig, tmvae_loss
 
 # The columns of history.csv, in order. Named once so the writer and the
 # per-epoch record cannot disagree.
@@ -98,14 +98,6 @@ def run_epoch(model, loader, model_cfg, device, optimizer=None, grad_clip=0.0):
             output = model(T, sample=training)
             loss = tmvae_loss(output, T, y, model_cfg)
             total = loss.total
-            if model_cfg.anchor_uniform:
-                anchor = anchor_loss(model, T.shape[-1], device)
-                total = total + model_cfg.anchor_uniform * anchor
-                totals["anchor"] = totals.get("anchor", 0.0) + anchor.detach().item() * len(T)
-            if model_cfg.lambda_star:
-                star = star_loss(model, T, model_cfg.star_margin)
-                total = total + model_cfg.lambda_star * star
-                totals["star"] = totals.get("star", 0.0) + star.detach().item() * len(T)
 
             if training:
                 optimizer.zero_grad(set_to_none=True)
@@ -282,8 +274,6 @@ def train(cfg):
                 f"score {scores['val_score']:9.3f}  "
                 f"(recon {val_losses['recon']:8.3f}  kl {val_losses['kl']:7.3f}  "
                 f"prop {val_losses['prop']:7.4f}  log_recon {val_losses['log_recon']:6.3f})"
-                + (f"  anchor {val_losses['anchor']:.4f}" if "anchor" in val_losses else "")
-                + (f"  star {val_losses['star']:.4f}" if "star" in val_losses else "")
                 + ("  *" if best["epoch"] == epoch else "")
             )
 
@@ -319,7 +309,7 @@ def train(cfg):
 
 def write_history(path, history):
     with open(path, "w", newline="") as handle:
-        # Optional terms, such as the uniform anchor, follow the fixed columns.
+        # Optional terms follow the fixed columns.
         extra = [k for k in history[0] if k not in HISTORY_FIELDS] if history else []
         writer = csv.DictWriter(handle, fieldnames=HISTORY_FIELDS + tuple(extra))
         writer.writeheader()

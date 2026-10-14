@@ -137,12 +137,7 @@ ABBREV = {
     # Not "lr*": that prefix is the learning rate's.
     "lambda_recon": "lrec",
     "lambda_recon_warmup_epochs": "lrecw",
-    "anchor_uniform": "au",
-    "anchor_target": "at",
     "prop_cap": "pcap",
-    "prop_head": "phead",
-    "lambda_star": "lst",
-    "star_margin": "smg",
 }
 
 NAMED_SEPARATELY = frozenset({"model", "drop"})
@@ -192,14 +187,8 @@ NAME_BASELINE = {
         # Added 2026-09-28. LayerNorm is what every earlier run used.
         "node_norm": "layernorm",
         "edge_norm": "layernorm",
-        # Added 2026-09-30, for the uniform-optimum investigation. Off, as
-        # every earlier run trained.
-        "anchor_uniform": 0.0,
-        "anchor_target": 2000.0,
+        # Added 2026-09-30. Off, as every earlier run trained.
         "prop_cap": 0.0,
-        "prop_head": "mlp",
-        "lambda_star": 0.0,
-        "star_margin": 0.05,
     },
 }
 

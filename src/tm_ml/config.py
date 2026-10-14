@@ -109,23 +109,9 @@ MODEL_DEFAULTS = {
         # would also change both terms' weight relative to beta and gamma.
         "lambda_recon": 1.0,
         "lambda_recon_warmup_epochs": 0,
-        # Weight on (ŷ(enc U) − anchor_target)², U the uniform matrix, added to
-        # every training step. The slides put the well-mixed landscape at the
-        # top of the range, a_max = 20 × 100 = 2000, and U is far outside the
-        # data, so without it the predictor's value there is extrapolation.
-        "anchor_uniform": 0.0,
-        "anchor_target": 2000.0,
         # A soft ceiling on the predicted effective population, in raw units:
         # log ŷ = c − softplus(c − s). 0 leaves the predictor unbounded.
         "prop_cap": 0.0,
-        # "mlp", or "uniform_max": log ŷ = log anchor_target − ‖A(φ(x) − φ(x_U))‖²,
-        # which puts the maximum at U by construction. See models.py.
-        "prop_head": "mlp",
-        # Weight on the star-shaped constraint around U: ŷ should rise along
-        # every segment from a matrix toward U, by at least star_margin in
-        # standardized log y per unit of s. See models.star_loss.
-        "lambda_star": 0.0,
-        "star_margin": 0.05,
     },
 }
 
