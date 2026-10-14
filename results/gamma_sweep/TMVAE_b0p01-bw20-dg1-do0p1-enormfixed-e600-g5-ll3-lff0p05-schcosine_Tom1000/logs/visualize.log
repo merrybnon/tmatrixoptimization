@@ -1,0 +1,48 @@
+  wrote /home/hlazzara/tmatrixoptimization/results/gamma_sweep/TMVAE_b0p01-bw20-dg1-do0p1-enormfixed-e600-g5-ll3-lff0p05-schcosine_Tom1000/figures/training_curve.png
+  wrote /home/hlazzara/tmatrixoptimization/results/gamma_sweep/TMVAE_b0p01-bw20-dg1-do0p1-enormfixed-e600-g5-ll3-lff0p05-schcosine_Tom1000/figures/predictions.png
+  wrote /home/hlazzara/tmatrixoptimization/results/gamma_sweep/TMVAE_b0p01-bw20-dg1-do0p1-enormfixed-e600-g5-ll3-lff0p05-schcosine_Tom1000/figures/reconstruction.png
+  wrote /home/hlazzara/tmatrixoptimization/results/gamma_sweep/TMVAE_b0p01-bw20-dg1-do0p1-enormfixed-e600-g5-ll3-lff0p05-schcosine_Tom1000/figures/spatial_graph.png
+  wrote /home/hlazzara/tmatrixoptimization/results/gamma_sweep/TMVAE_b0p01-bw20-dg1-do0p1-enormfixed-e600-g5-ll3-lff0p05-schcosine_Tom1000/figures/latent.png
+  wrote /home/hlazzara/tmatrixoptimization/results/gamma_sweep/TMVAE_b0p01-bw20-dg1-do0p1-enormfixed-e600-g5-ll3-lff0p05-schcosine_Tom1000/figures/latent_property.png
+  wrote /home/hlazzara/tmatrixoptimization/results/gamma_sweep/TMVAE_b0p01-bw20-dg1-do0p1-enormfixed-e600-g5-ll3-lff0p05-schcosine_Tom1000/figures/latent_property_3D.png
+  wrote /home/hlazzara/tmatrixoptimization/results/gamma_sweep/TMVAE_b0p01-bw20-dg1-do0p1-enormfixed-e600-g5-ll3-lff0p05-schcosine_Tom1000/figures/latent_property_3D.html
+  wrote /home/hlazzara/tmatrixoptimization/results/gamma_sweep/TMVAE_b0p01-bw20-dg1-do0p1-enormfixed-e600-g5-ll3-lff0p05-schcosine_Tom1000/figures/interpolation_and_traversals/traversal_gbd.png
+  wrote /home/hlazzara/tmatrixoptimization/results/gamma_sweep/TMVAE_b0p01-bw20-dg1-do0p1-enormfixed-e600-g5-ll3-lff0p05-schcosine_Tom1000/figures/interpolation_and_traversals/traversal_gbd_spatial.png
+  wrote /home/hlazzara/tmatrixoptimization/results/gamma_sweep/TMVAE_b0p01-bw20-dg1-do0p1-enormfixed-e600-g5-ll3-lff0p05-schcosine_Tom1000/figures/interpolation_and_traversals/traversal_PC1.png
+  wrote /home/hlazzara/tmatrixoptimization/results/gamma_sweep/TMVAE_b0p01-bw20-dg1-do0p1-enormfixed-e600-g5-ll3-lff0p05-schcosine_Tom1000/figures/interpolation_and_traversals/traversal_PC1_spatial.png
+  wrote /home/hlazzara/tmatrixoptimization/results/gamma_sweep/TMVAE_b0p01-bw20-dg1-do0p1-enormfixed-e600-g5-ll3-lff0p05-schcosine_Tom1000/figures/interpolation_and_traversals/traversal_PC2.png
+  wrote /home/hlazzara/tmatrixoptimization/results/gamma_sweep/TMVAE_b0p01-bw20-dg1-do0p1-enormfixed-e600-g5-ll3-lff0p05-schcosine_Tom1000/figures/interpolation_and_traversals/traversal_PC2_spatial.png
+  wrote /home/hlazzara/tmatrixoptimization/results/gamma_sweep/TMVAE_b0p01-bw20-dg1-do0p1-enormfixed-e600-g5-ll3-lff0p05-schcosine_Tom1000/figures/interpolation_and_traversals/interpolation.png
+  wrote /home/hlazzara/tmatrixoptimization/results/gamma_sweep/TMVAE_b0p01-bw20-dg1-do0p1-enormfixed-e600-g5-ll3-lff0p05-schcosine_Tom1000/figures/interpolation_and_traversals/interpolation_spatial.png
+  wrote /home/hlazzara/tmatrixoptimization/results/gamma_sweep/TMVAE_b0p01-bw20-dg1-do0p1-enormfixed-e600-g5-ll3-lff0p05-schcosine_Tom1000/figures/optimization/maximize_g0.png
+/home/hlazzara/tmatrixoptimization/src/tm_ml/visualize.py:1250: RuntimeWarning: overflow encountered in exp
+  return log_matrix(T_hat.cpu().numpy()), np.exp(scaler.inverse(log_y_hat))
+  wrote /home/hlazzara/tmatrixoptimization/results/gamma_sweep/TMVAE_b0p01-bw20-dg1-do0p1-enormfixed-e600-g5-ll3-lff0p05-schcosine_Tom1000/figures/optimization/maximize_g0_unreg.png
+  wrote /home/hlazzara/tmatrixoptimization/results/gamma_sweep/TMVAE_b0p01-bw20-dg1-do0p1-enormfixed-e600-g5-ll3-lff0p05-schcosine_Tom1000/figures/optimization/maximize_g1.png
+/home/hlazzara/tmatrixoptimization/src/tm_ml/visualize.py:1250: RuntimeWarning: overflow encountered in exp
+  return log_matrix(T_hat.cpu().numpy()), np.exp(scaler.inverse(log_y_hat))
+  wrote /home/hlazzara/tmatrixoptimization/results/gamma_sweep/TMVAE_b0p01-bw20-dg1-do0p1-enormfixed-e600-g5-ll3-lff0p05-schcosine_Tom1000/figures/optimization/maximize_g1_unreg.png
+  wrote /home/hlazzara/tmatrixoptimization/results/gamma_sweep/TMVAE_b0p01-bw20-dg1-do0p1-enormfixed-e600-g5-ll3-lff0p05-schcosine_Tom1000/figures/optimization/maximize_g2.png
+/home/hlazzara/tmatrixoptimization/src/tm_ml/visualize.py:1250: RuntimeWarning: overflow encountered in exp
+  return log_matrix(T_hat.cpu().numpy()), np.exp(scaler.inverse(log_y_hat))
+  wrote /home/hlazzara/tmatrixoptimization/results/gamma_sweep/TMVAE_b0p01-bw20-dg1-do0p1-enormfixed-e600-g5-ll3-lff0p05-schcosine_Tom1000/figures/optimization/maximize_g2_unreg.png
+  wrote /home/hlazzara/tmatrixoptimization/results/gamma_sweep/TMVAE_b0p01-bw20-dg1-do0p1-enormfixed-e600-g5-ll3-lff0p05-schcosine_Tom1000/figures/optimization/minimize_g0.png
+  wrote /home/hlazzara/tmatrixoptimization/results/gamma_sweep/TMVAE_b0p01-bw20-dg1-do0p1-enormfixed-e600-g5-ll3-lff0p05-schcosine_Tom1000/figures/optimization/minimize_g0_unreg.png
+  wrote /home/hlazzara/tmatrixoptimization/results/gamma_sweep/TMVAE_b0p01-bw20-dg1-do0p1-enormfixed-e600-g5-ll3-lff0p05-schcosine_Tom1000/figures/optimization/minimize_g1.png
+  wrote /home/hlazzara/tmatrixoptimization/results/gamma_sweep/TMVAE_b0p01-bw20-dg1-do0p1-enormfixed-e600-g5-ll3-lff0p05-schcosine_Tom1000/figures/optimization/minimize_g1_unreg.png
+  wrote /home/hlazzara/tmatrixoptimization/results/gamma_sweep/TMVAE_b0p01-bw20-dg1-do0p1-enormfixed-e600-g5-ll3-lff0p05-schcosine_Tom1000/figures/optimization/minimize_g2.png
+  wrote /home/hlazzara/tmatrixoptimization/results/gamma_sweep/TMVAE_b0p01-bw20-dg1-do0p1-enormfixed-e600-g5-ll3-lff0p05-schcosine_Tom1000/figures/optimization/minimize_g2_unreg.png
+  wrote /home/hlazzara/tmatrixoptimization/results/gamma_sweep/TMVAE_b0p01-bw20-dg1-do0p1-enormfixed-e600-g5-ll3-lff0p05-schcosine_Tom1000/figures/optimization/spatial/maximize_g0.png
+/home/hlazzara/tmatrixoptimization/src/tm_ml/visualize.py:1250: RuntimeWarning: overflow encountered in exp
+  return log_matrix(T_hat.cpu().numpy()), np.exp(scaler.inverse(log_y_hat))
+  wrote /home/hlazzara/tmatrixoptimization/results/gamma_sweep/TMVAE_b0p01-bw20-dg1-do0p1-enormfixed-e600-g5-ll3-lff0p05-schcosine_Tom1000/figures/optimization/spatial/maximize_g0_unreg.png
+  wrote /home/hlazzara/tmatrixoptimization/results/gamma_sweep/TMVAE_b0p01-bw20-dg1-do0p1-enormfixed-e600-g5-ll3-lff0p05-schcosine_Tom1000/figures/optimization/spatial/maximize_g1.png
+  wrote /home/hlazzara/tmatrixoptimization/results/gamma_sweep/TMVAE_b0p01-bw20-dg1-do0p1-enormfixed-e600-g5-ll3-lff0p05-schcosine_Tom1000/figures/optimization/spatial/maximize_g1_unreg.png
+  wrote /home/hlazzara/tmatrixoptimization/results/gamma_sweep/TMVAE_b0p01-bw20-dg1-do0p1-enormfixed-e600-g5-ll3-lff0p05-schcosine_Tom1000/figures/optimization/spatial/maximize_g2.png
+  wrote /home/hlazzara/tmatrixoptimization/results/gamma_sweep/TMVAE_b0p01-bw20-dg1-do0p1-enormfixed-e600-g5-ll3-lff0p05-schcosine_Tom1000/figures/optimization/spatial/maximize_g2_unreg.png
+  wrote /home/hlazzara/tmatrixoptimization/results/gamma_sweep/TMVAE_b0p01-bw20-dg1-do0p1-enormfixed-e600-g5-ll3-lff0p05-schcosine_Tom1000/figures/optimization/spatial/minimize_g0.png
+  wrote /home/hlazzara/tmatrixoptimization/results/gamma_sweep/TMVAE_b0p01-bw20-dg1-do0p1-enormfixed-e600-g5-ll3-lff0p05-schcosine_Tom1000/figures/optimization/spatial/minimize_g0_unreg.png
+  wrote /home/hlazzara/tmatrixoptimization/results/gamma_sweep/TMVAE_b0p01-bw20-dg1-do0p1-enormfixed-e600-g5-ll3-lff0p05-schcosine_Tom1000/figures/optimization/spatial/minimize_g1.png
+  wrote /home/hlazzara/tmatrixoptimization/results/gamma_sweep/TMVAE_b0p01-bw20-dg1-do0p1-enormfixed-e600-g5-ll3-lff0p05-schcosine_Tom1000/figures/optimization/spatial/minimize_g1_unreg.png
+  wrote /home/hlazzara/tmatrixoptimization/results/gamma_sweep/TMVAE_b0p01-bw20-dg1-do0p1-enormfixed-e600-g5-ll3-lff0p05-schcosine_Tom1000/figures/optimization/spatial/minimize_g2.png
+  wrote /home/hlazzara/tmatrixoptimization/results/gamma_sweep/TMVAE_b0p01-bw20-dg1-do0p1-enormfixed-e600-g5-ll3-lff0p05-schcosine_Tom1000/figures/optimization/spatial/minimize_g2_unreg.png

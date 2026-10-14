@@ -1,0 +1,18 @@
+gamma_sweep/TMVAE_b0p01-bw20-dg1-do0p1-enormfixed-e600-g10-ll3-lff0p05-schcosine-s2_Tom1000
+  cuda:1 NVIDIA A100 80GB PCIe (78.6/79.2 GiB free)
+  233,574 parameters against 800 training examples
+  splits {'test': 100, 'val': 100, 'train': 800}, target scaler {'mean': 5.733563423156738, 'std': 0.676572859287262}
+  epoch    0  lr 1.00e-03  train    52.113  val    46.864  score    49.208  (recon   27.032  kl 246.716  prop  1.1122  log_recon  2.862)  *
+  epoch   50  lr 9.84e-04  train     7.220  val     7.538  score     7.538  (recon    1.016  kl 237.968  prop  0.2571  log_recon  0.524)
+  epoch  100  lr 9.36e-04  train     5.566  val     6.196  score     6.196  (recon    0.628  kl 227.567  prop  0.1957  log_recon  0.445)
+  epoch  150  lr 8.60e-04  train     4.641  val     5.892  score     5.892  (recon    0.607  kl 211.169  prop  0.2005  log_recon  0.390)
+  epoch  200  lr 7.62e-04  train     4.142  val     5.835  score     5.835  (recon    0.608  kl 197.647  prop  0.2268  log_recon  0.328)
+  epoch  250  lr 6.47e-04  train     3.814  val     5.139  score     5.139  (recon    0.614  kl 191.665  prop  0.1734  log_recon  0.292)
+  epoch  300  lr 5.24e-04  train     3.655  val     5.262  score     5.262  (recon    0.751  kl 187.801  prop  0.1750  log_recon  0.295)
+  epoch  350  lr 4.01e-04  train     3.420  val     5.174  score     5.174  (recon    0.781  kl 185.790  prop  0.1676  log_recon  0.286)
+  epoch  400  lr 2.86e-04  train     3.331  val     5.198  score     5.198  (recon    0.711  kl 187.121  prop  0.1775  log_recon  0.280)
+  epoch  450  lr 1.88e-04  train     3.268  val     5.098  score     5.098  (recon    0.692  kl 185.803  prop  0.1781  log_recon  0.256)
+  epoch  500  lr 1.13e-04  train     3.178  val     4.964  score     4.964  (recon    0.686  kl 185.695  prop  0.1647  log_recon  0.258)
+  epoch  550  lr 6.56e-05  train     3.140  val     5.041  score     5.041  (recon    0.719  kl 185.112  prop  0.1699  log_recon  0.257)
+  epoch  599  lr 5.00e-05  train     3.149  val     5.081  score     5.081  (recon    0.758  kl 185.113  prop  0.1684  log_recon  0.263)
+  best val_score 4.8284 at epoch 464, 313.7s

@@ -1,0 +1,23 @@
+{
+  "run": "gamma_sweep/TMVAE_b0p01-bw20-dg1-do0p1-enormfixed-e600-g15-ll3-lff0p05-schcosine-s2_Tom1000",
+  "device": "cuda:1 NVIDIA A100 80GB PCIe (78.6/79.2 GiB free)",
+  "n_parameters": 233574,
+  "splits": {
+    "test": 100,
+    "val": 100,
+    "train": 800
+  },
+  "target_scaler": {
+    "mean": 5.733563423156738,
+    "std": 0.676572859287262
+  },
+  "best_epoch": 279,
+  "best_val_score": 5.8481061934262515,
+  "selection_metric": "val_score, at the configured beta and gamma",
+  "epochs_run": 600,
+  "stopped_early": false,
+  "seconds": 351.8,
+  "torch": "2.13.0",
+  "git_commit": "7e99f42f0826c180bb94c85df4879b3573edcb14",
+  "finished_at": "2026-09-30T18:10:21+00:00"
+}

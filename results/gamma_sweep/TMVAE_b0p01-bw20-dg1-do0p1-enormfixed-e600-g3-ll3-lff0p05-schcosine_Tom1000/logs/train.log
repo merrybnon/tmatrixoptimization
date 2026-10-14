@@ -1,0 +1,18 @@
+gamma_sweep/TMVAE_b0p01-bw20-dg1-do0p1-enormfixed-e600-g3-ll3-lff0p05-schcosine_Tom1000
+  cuda:1 NVIDIA A100 80GB PCIe (78.6/79.2 GiB free)
+  233,574 parameters against 800 training examples
+  splits {'test': 100, 'val': 100, 'train': 800}, target scaler {'mean': 5.730581283569336, 'std': 0.6890460252761841}
+  epoch    0  lr 1.00e-03  train    46.688  val    39.137  score    41.472  (recon   26.974  kl 245.760  prop  1.0646  log_recon  2.949)  *
+  epoch   50  lr 9.84e-04  train     5.829  val     5.566  score     5.566  (recon    0.881  kl 234.290  prop  0.3067  log_recon  0.474)
+  epoch  100  lr 9.36e-04  train     4.697  val     4.856  score     4.856  (recon    0.610  kl 219.633  prop  0.3217  log_recon  0.361)
+  epoch  150  lr 8.60e-04  train     4.063  val     4.238  score     4.238  (recon    0.594  kl 207.309  prop  0.2159  log_recon  0.308)
+  epoch  200  lr 7.62e-04  train     3.704  val     4.023  score     4.023  (recon    0.614  kl 195.324  prop  0.2077  log_recon  0.278)
+  epoch  250  lr 6.47e-04  train     3.530  val     3.914  score     3.914  (recon    0.640  kl 188.162  prop  0.1977  log_recon  0.266)
+  epoch  300  lr 5.24e-04  train     3.306  val     3.806  score     3.806  (recon    0.595  kl 187.246  prop  0.1997  log_recon  0.247)
+  epoch  350  lr 4.01e-04  train     3.189  val     3.573  score     3.573  (recon    0.472  kl 186.353  prop  0.1872  log_recon  0.225)
+  epoch  400  lr 2.86e-04  train     3.124  val     3.679  score     3.679  (recon    0.578  kl 185.489  prop  0.1818  log_recon  0.234)
+  epoch  450  lr 1.88e-04  train     3.064  val     3.807  score     3.807  (recon    0.681  kl 185.578  prop  0.1802  log_recon  0.243)
+  epoch  500  lr 1.13e-04  train     3.015  val     3.656  score     3.656  (recon    0.568  kl 185.909  prop  0.1862  log_recon  0.223)
+  epoch  550  lr 6.56e-05  train     2.995  val     3.645  score     3.645  (recon    0.585  kl 185.324  prop  0.1801  log_recon  0.222)
+  epoch  599  lr 5.00e-05  train     2.981  val     3.752  score     3.752  (recon    0.667  kl 185.448  prop  0.1828  log_recon  0.227)
+  best val_score 3.4336 at epoch 428, 323.8s

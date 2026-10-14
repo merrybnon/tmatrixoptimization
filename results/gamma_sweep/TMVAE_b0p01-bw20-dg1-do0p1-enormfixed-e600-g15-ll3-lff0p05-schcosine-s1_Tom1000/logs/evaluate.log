@@ -1,0 +1,6 @@
+gamma_sweep/TMVAE_b0p01-bw20-dg1-do0p1-enormfixed-e600-g15-ll3-lff0p05-schcosine-s1_Tom1000  (epoch 403, 100 test examples)
+  property   R2 0.841  skill vs train mean +60.2%  median relative error 20.9%  RMSE 164.1 in exponent units
+  range      resolution 0.894 +/- 0.038 (expect R2)  calibration 0.947 +/- 0.041 (expect 1)
+  recon      KL 0.518  rmse 0.0215  log-space MAE 0.282
+  validity   diag 0.0e+00  row sums off by 3.6e-07  finite True
+  latent     KL 199.77 (node 195.52, global 4.25)  active 5/8 per node  PCA90 4  above noise 4

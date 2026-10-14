@@ -13,3 +13,4 @@ data/processed/*
 !data/processed/.gitkeep
 results/*
 !results/.gitkeep
+!results/gamma_sweep/
