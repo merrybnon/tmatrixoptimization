@@ -9,6 +9,8 @@ stamped with a provenance footer:
                              linear and a log axis, with summary statistics
 - ``example_matrices.png``   the four highest-target matrices, the four nearest
                              the median and the four lowest, in log10
+- ``example_matrices_spatial.png``  the same twelve as the landscapes they came
+                             from, positions recovered by inverting the generator
 - ``uniformness_vs_target.png``      four measures of how uniform a matrix is,
                                      each against the target
 - ``uniformness_vs_target_log.png``  the same with the target on a log axis
@@ -29,8 +31,9 @@ from scipy.stats import spearmanr
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt  # noqa: E402
 
+from tm_ml import landscape  # noqa: E402
 from tm_ml.ingest import PROCESSED_DIR, git_commit  # noqa: E402
-from tm_ml.style import INK, INK_SOFT, SEQUENTIAL, TRAIN, VAL, style  # noqa: E402
+from tm_ml.style import INK, INK_SOFT, PROPERTY_SOLID, SEQUENTIAL, VAL, style  # noqa: E402
 
 N_BINS = 40
 N_EXAMPLES = 4
@@ -64,20 +67,20 @@ def target_statistics(targets, meta, out):
 
     for row, scale in enumerate(("linear", "log")):
         ax = axes[row, 0]
-        ax.hist(targets, bins=bins[scale], color=TRAIN, edgecolor="white", linewidth=0.5)
+        ax.hist(targets, bins=bins[scale], color=PROPERTY_SOLID, edgecolor="white", linewidth=0.5)
         ax.set_ylabel("matrices")
         ax.set_title(f"Histogram, {scale} bins")
 
         ax = axes[row, 1]
         ax.step(np.concatenate([[ordered[0]], ordered]),
-                np.concatenate([[1.0], survival]), where="post", color=TRAIN)
+                np.concatenate([[1.0], survival]), where="post", color=PROPERTY_SOLID)
         ax.set_ylim(0, 1.02)
         ax.set_ylabel("fraction with target > t")
         ax.set_title(f"Survival, {scale} axis")
 
         for ax in axes[row]:
             ax.set_xscale(scale)
-            ax.set_xlabel("target t (decay exponent)")
+            ax.set_xlabel("target t (effective population)")
             ax.axvline(median, color=VAL, linestyle="--", linewidth=1.2, label="median")
             ax.legend(loc="upper right")
 
@@ -145,6 +148,39 @@ def example_matrices(matrices, targets, meta, out):
     plt.close(fig)
 
 
+def example_matrices_spatial(matrices, targets, meta, out):
+    """The same twelve examples as spatial graphs, edge widths on one scale.
+
+    Each layout comes from `landscape.positions`, so it is stretched to fill the
+    unit square and sits in one of the square's eight orientations at random;
+    the graphs are unrelated, so there is nothing to align them to.
+    """
+    rows = example_indices(targets)
+    layouts = {i: landscape.positions(matrices[i])[0] for _, indices in rows for i in indices}
+    heaviest = max(matrices[i].max() for i in layouts)
+    bounds = landscape.limits(*layouts.values())
+
+    fig, axes = plt.subplots(len(rows), N_EXAMPLES, figsize=(11, 8.9))
+    fig.subplots_adjust(left=0.05, right=0.99, top=0.91, bottom=0.04, wspace=0.08, hspace=0.25)
+    for row, (label, indices) in enumerate(rows):
+        for column, i in enumerate(indices):
+            ax = axes[row, column]
+            landscape.draw(ax, matrices[i], layouts[i], heaviest, bounds,
+                           width_max=2.5, node_size=70, label_size=5)
+            ax.set_xticks([])
+            ax.set_yticks([])
+            ax.grid(False)
+            ax.set_title(f"#{i}   target {targets[i]:.1f}", fontsize=9)
+            if column == 0:
+                ax.set_ylabel(label, fontsize=9)
+
+    fig.suptitle(f"Example landscapes of {meta['drop']}, by target — edge width ∝ T_ij",
+                 fontsize=12, color=INK, x=0.005, ha="left")
+    footer(fig, meta)
+    fig.savefig(out)
+    plt.close(fig)
+
+
 def uniformness(matrices):
     """Four per-matrix measures of uniformness, over the off-diagonal entries.
 
@@ -173,11 +209,11 @@ def uniformness_vs_target(matrices, targets, meta, out, scale):
     fig.subplots_adjust(left=0.08, right=0.98, top=0.9, bottom=0.1, hspace=0.34, wspace=0.22)
     for ax, (title, xlabel, values) in zip(axes.flat, uniformness(matrices)):
         rho = spearmanr(values, targets).statistic
-        ax.scatter(values, targets, s=10, alpha=0.5, color=TRAIN, edgecolors="none")
+        ax.scatter(values, targets, s=10, alpha=0.5, color=PROPERTY_SOLID, edgecolors="none")
         ax.set_yscale(scale)
         ax.set_title(f"{title}   (Spearman ρ {rho:+.2f})")
         ax.set_xlabel(xlabel)
-        ax.set_ylabel("target (decay exponent)")
+        ax.set_ylabel("target (effective population)")
 
     fig.suptitle(
         f"Uniformness against target, {meta['drop']}, {scale} target axis   |   "
@@ -198,6 +234,8 @@ def data_figures(drop, processed_dir=None):
     style()
     target_statistics(targets, meta, processed_dir / "target_statistics.png")
     example_matrices(matrices, targets, meta, processed_dir / "example_matrices.png")
+    example_matrices_spatial(matrices, targets, meta,
+                             processed_dir / "example_matrices_spatial.png")
     for scale, suffix in (("linear", ""), ("log", "_log")):
         uniformness_vs_target(matrices, targets, meta,
                               processed_dir / f"uniformness_vs_target{suffix}.png", scale)

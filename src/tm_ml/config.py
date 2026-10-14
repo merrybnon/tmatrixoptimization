@@ -76,6 +76,12 @@ MODEL_DEFAULTS = {
         "pair_hidden": 128,
         "predictor_hidden": 64,
         "pooling": "deepsets",
+        # "layernorm" or "fixed": the first step on the raw node and edge
+        # features. Fixed standardizes each feature against constants fitted on
+        # the training split, which keeps the scale of small entries that a
+        # per-vector LayerNorm throws away.
+        "node_norm": "layernorm",
+        "edge_norm": "layernorm",
         "dropout": 0.0,
         "beta": 1.0,
         "gamma": 1.0,
@@ -127,6 +133,8 @@ ORGANIZING_FIELDS = frozenset({"parent_path"})
 NON_DETERMINING = frozenset(RUNTIME_DEFAULTS) | WORKFLOW_FIELDS | ORGANIZING_FIELDS
 
 POOLING_MODES = ("mean", "deepsets", "attention")
+
+INPUT_NORMS = ("layernorm", "fixed")
 
 LR_SCHEDULES = ("constant", "cosine", "exponential")
 
@@ -275,6 +283,11 @@ def _finalize(cfg):
         raise ValueError(
             f"unknown pooling {cfg['pooling']!r}; expected one of {list(POOLING_MODES)}"
         )
+    for field in ("node_norm", "edge_norm"):
+        if cfg[field] not in INPUT_NORMS:
+            raise ValueError(
+                f"unknown {field} {cfg[field]!r}; expected one of {list(INPUT_NORMS)}"
+            )
     if cfg["d_global"] < 0:
         raise ValueError(f"d_global must be at least 0, got {cfg['d_global']!r}")
     for weight in LOSS_WEIGHTS:

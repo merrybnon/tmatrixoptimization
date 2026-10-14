@@ -10,9 +10,18 @@ so a figure is self-describing wherever it ends up:
 - ``predictions.png``     the property, predicted against true, on the test split
 - ``reconstruction.png``  example matrices, and error against the size of the
                           true entry, which is where forward KL is blind
+- ``spatial_graph.png``   example landscapes in space, positions recovered from
+                          T and from T̂ by inverting the generator, the
+                          reconstruction aligned to the truth
 - ``latent.png``          how many latent dimensions are actually carrying code
 - ``latent_property.png`` where graphs sit in the latent, coloured by the
-                          property, at node and graph level and in two bases
+                          property: the global against node-side axes, and
+                          the sorted PCA with and without the global
+- ``latent_property_3D.png`` the predicted effective population as a partial-dependence
+                          surface over the global dim and sorted-160 PC1,
+                          as log ŷ and as ŷ, with the test graphs standing on it
+- ``latent_property_3D.html`` the same as a page to turn and hover, plotly.js
+                          embedded so it opens offline
 
 and into ``figures/interpolation_and_traversals/``:
 
@@ -20,10 +29,21 @@ and into ``figures/interpolation_and_traversals/``:
 - ``traversal_PC1.png``   the same along sorted-160 PC1
 - ``traversal_PC2.png``   and PC2
 - ``interpolation.png``   straight lines between test graphs, nodes matched first
-- ``optimization_g#.png`` BFGS ascent of the predicted exponent from test
+- ``*_spatial.png``       each of the above with every decoded matrix drawn as
+                          the landscape it implies, as in ``spatial_graph.png``
+
+and into ``figures/optimization/``:
+
+- ``maximize_g#.png``     BFGS ascent of the predicted effective population from test
                           example #, penalized by distance from the start; decoded along the
                           path, then the path in the graph-level latent views
-- ``optimization_g#_unreg.png``  the same with no penalty
+- ``minimize_g#.png``     the same descending
+- ``*_g#_unreg.png``      either with no penalty
+
+and into ``figures/optimization/spatial/``:
+
+- the same figures, each decoded matrix drawn as the landscape it implies,
+  as in ``spatial_graph.png``
 
 Reads `history.csv` and `metrics.json`, and re-runs the model for the examples,
 so it needs `evaluate.py` to have gone first.
@@ -31,25 +51,30 @@ so it needs `evaluate.py` to have gone first.
 
 import argparse
 import csv
+import functools
 import json
 import textwrap
 from datetime import datetime, timezone
 
 import matplotlib
 import numpy as np
+import plotly.graph_objects as go
 import torch
+from plotly.subplots import make_subplots
 from scipy.optimize import linear_sum_assignment
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt  # noqa: E402
-from matplotlib.colors import TwoSlopeNorm  # noqa: E402
+from matplotlib.colors import LogNorm, TwoSlopeNorm, to_hex  # noqa: E402
+from scipy.interpolate import RegularGridInterpolator  # noqa: E402
 
 from tm_ml import evaluate as evaluate_module
-from tm_ml import optimize, paths
+from tm_ml import landscape, optimize, paths
 from tm_ml.ingest import git_commit
 from tm_ml.models import TMVAEConfig, off_diagonal
 from tm_ml.style import (
-    DIVERGING, INK, INK_SOFT, SEQUENTIAL, SURFACE, THIRD, TRAIN, VAL, style,
+    DIVERGING, GRID, INK, INK_SOFT, PROPERTY, PROPERTY_SOLID, SEQUENTIAL, SURFACE, THIRD,
+    TRAIN, VAL, style,
 )
 
 N_EXAMPLES = 3
@@ -60,23 +85,35 @@ INTERPOLATION_STEPS = 7
 N_OPTIMIZATION_COLUMNS = 7
 # The weight λ on ‖x − x₀‖² for each optimization variant, the distance from
 # the start. `optimize.py` says why the penalty is not anchored at the origin.
-OPTIMIZATION_LAMBDA = {"": 1.0, "_unreg": 0.0}
+OPTIMIZATION_LAMBDA = {"": 0.1, "_unreg": 0.0}
+# The sign s on log ŷ for each direction.
+OPTIMIZATION_SENSE = {"maximize": 1, "minimize": -1}
+# The partial-dependence surface: grid points per axis, the half-width of the
+# grid on each axis, centred on zero, and the (elevation, azimuth) it is seen from.
+PDP_GRID = 100
+PDP_GLOBAL_EXTENT = 4.0
+PDP_PC1_EXTENT = 7.0
+PDP_VIEW = (25, 120)
 # Below this rate a dimension is prior noise, not code.
 ACTIVE_DIM_MIN_KL = 0.01
 LOG_FLOOR = 1e-12
 
 
-def footer(fig, metrics):
-    """Provenance, so a figure that escapes the run directory still says what it is."""
-    fig.text(
-        0.005, 0.004,
+def provenance(metrics):
+    """Run, checkpoint, drop, split seed, git hash and timestamp, as one line."""
+    return (
         f"{metrics['run']}  |  epoch {metrics['best_epoch']} "
         f"({metrics['best_metric']} {metrics['best_score']:.4f})  |  "
         f"drop {metrics['drop']}, split seed {metrics['split_seed']}, "
         f"n_test {metrics['n_test']}  |  git {str(metrics['git_commit'])[:8]}  |  "
-        f"drawn {datetime.now(timezone.utc).isoformat(timespec='seconds')}",
-        fontsize=6, color=INK_SOFT, ha="left", va="bottom",
+        f"drawn {datetime.now(timezone.utc).isoformat(timespec='seconds')}"
     )
+
+
+def footer(fig, metrics):
+    """Provenance, so a figure that escapes the run directory still says what it is."""
+    fig.text(0.005, 0.004, provenance(metrics), fontsize=6, color=INK_SOFT,
+             ha="left", va="bottom")
 
 
 def read_history(run_dir):
@@ -145,7 +182,7 @@ def training_curve(history, metrics, out):
 
 
 def predictions(data, scaler, metrics, out):
-    """Predicted against true, and the residual, in real decay-exponent units."""
+    """Predicted against true, and the residual, in real effective-population units."""
     log_y = scaler.inverse(data["y"].numpy())
     log_y_hat = scaler.inverse(data["y_hat"].numpy())
     true, predicted = np.exp(log_y), np.exp(log_y_hat)
@@ -156,10 +193,10 @@ def predictions(data, scaler, metrics, out):
     ax = axes[0]
     limits = [min(true.min(), predicted.min()) * 0.9, max(true.max(), predicted.max()) * 1.1]
     ax.plot(limits, limits, color=INK_SOFT, linewidth=1.0, linestyle="--", label="exact")
-    ax.scatter(true, predicted, s=22, color=TRAIN, edgecolor=SURFACE,
+    ax.scatter(true, predicted, s=22, color=PROPERTY_SOLID, edgecolor=SURFACE,
                linewidth=0.5, label="test example")
     # Prediction regressed on truth, against the identity line. The gap between
-    # them is resolution, not error: where they cross is the only exponent the
+    # them is resolution, not error: where they cross is the only effective population the
     # model gets right on average.
     grid = np.linspace(np.log(limits[0]), np.log(limits[1]), 200)
     ax.plot(np.exp(grid), np.exp(slope * grid + intercept), color=INK,
@@ -168,7 +205,7 @@ def predictions(data, scaler, metrics, out):
     ax.set_yscale("log")
     ax.set_xlim(limits)
     ax.set_ylim(limits)
-    ax.set_xlabel("true decay exponent")
+    ax.set_xlabel("true effective population")
     ax.set_ylabel("predicted")
     ax.set_title(
         f"Property prediction — R² {metrics['test_r2']:.3f} on log y, "
@@ -179,11 +216,11 @@ def predictions(data, scaler, metrics, out):
     ax = axes[1]
     residual = log_y_hat - log_y
     ax.axhline(0.0, color=INK_SOFT, linewidth=1.0, linestyle="--")
-    ax.scatter(true, residual, s=22, color=TRAIN, edgecolor=SURFACE, linewidth=0.5)
+    ax.scatter(true, residual, s=22, color=PROPERTY_SOLID, edgecolor=SURFACE, linewidth=0.5)
     # The same fit, seen as the tilt it puts on the residual: slope − 1.
     ax.plot(np.exp(grid), (slope - 1.0) * grid + intercept, color=INK, linewidth=1.4)
     ax.set_xscale("log")
-    ax.set_xlabel("true decay exponent")
+    ax.set_xlabel("true effective population")
     ax.set_ylabel("log ŷ − log y")
     # Resolution below 1 tilts this cloud and is the model being imperfect;
     # calibration away from 1 is the one that means the numbers are wrong.
@@ -214,6 +251,19 @@ def sorted_descriptor(mu):
     up is the joint, which node held which combination across dimensions.
     """
     return np.sort(mu, axis=1).reshape(len(mu), -1)
+
+
+def unsort(descriptor, order):
+    """Sorted descriptors ``(k, n_nodes * d_latent)`` back onto nodes as ``(k, n_nodes, d_latent)``.
+
+    ``order`` is ``np.argsort(mu, axis=1)`` of the latents the descriptors came
+    from, so rank r of dimension d returns to the node that held rank r — the
+    only inverse the sort has once a move has let values cross ranks.
+    """
+    moved = descriptor.reshape(order.shape)
+    z = np.empty_like(moved)
+    np.put_along_axis(z, order, moved, axis=1)
+    return z
 
 
 def principal_axes(matrix):
@@ -298,6 +348,40 @@ def reconstruction(data, metrics, out):
     plt.close(fig)
 
 
+def spatial_graph(data, metrics, out):
+    """Example landscapes laid out in space, from T and from T̂.
+
+    Positions come from inverting the generator, `landscape.positions`. The
+    reconstruction keeps the input's node labels, so its layout is aligned onto
+    the true one by Procrustes on those labels, which settles the rotation,
+    reflection and shift that T alone leaves open. Both are scaled to fill the
+    unit square first, so the alignment does not fit a scale of its own.
+    """
+    fig, axes = plt.subplots(N_EXAMPLES, 2, figsize=(11.0, 5.4 * N_EXAMPLES))
+    for row in range(N_EXAMPLES):
+        T = data["T"][row].numpy().astype(np.float64)
+        T_hat = data["T_hat"][row].numpy().astype(np.float64)
+        true_xy, _ = landscape.positions(T)
+        recon_xy, _ = landscape.positions(T_hat)
+        recon_xy = landscape.align(recon_xy, true_xy, scale=False)
+        error = np.sqrt(((recon_xy - true_xy) ** 2).sum(axis=1).mean())
+        heaviest = max(T.max(), T_hat.max())
+        bounds = landscape.limits(true_xy, recon_xy)
+        for ax, matrix, xy, title in (
+            (axes[row, 0], T, true_xy, "true, positions from T"),
+            (axes[row, 1], T_hat, recon_xy,
+             f"reconstructed, from T̂ aligned to true — RMS offset {error:.3f}"),
+        ):
+            landscape.draw(ax, matrix, xy, heaviest, bounds)
+            ax.set_xlabel("x")
+            ax.set_title(title)
+        axes[row, 0].set_ylabel(f"test example {row}\n\ny", fontsize=8)
+    fig.tight_layout(rect=(0, 0.02, 1, 1))
+    footer(fig, metrics)
+    fig.savefig(out)
+    plt.close(fig)
+
+
 def latent(metrics, out):
     """Whether the bottleneck is the width it claims to be.
 
@@ -372,36 +456,6 @@ def latent_row(axes, metrics, prefix, name, unit):
     ax.set_title(f"{name} effective width, four ways")
 
 
-def node_features(T):
-    """Interpretable per-node summaries, each equivariant under relabelling.
-
-    Every one reduces over the *other* index, so it is a property of the node
-    and not of the labelling — the condition `permutationsandlatent.md` sets out
-    for a legitimate node feature. These are what make the latent axes readable:
-    a dimension is named by what it correlates with.
-    """
-    n = T.shape[-1]
-    off = off_diagonal(n, torch.device("cpu")).numpy()
-    log_T = np.log(np.clip(T, LOG_FLOOR, None))
-
-    column = T / np.clip(T.sum(1, keepdims=True), LOG_FLOOR, None)
-    # The diagonal is structurally zero and would win every minimum.
-    stationary = np.empty(T.shape[:2])
-    for graph, matrix in enumerate(T):
-        values, vectors = np.linalg.eig(matrix.T)
-        leading = np.real(vectors[:, np.argmin(np.abs(values - 1.0))])
-        stationary[graph] = leading / leading.sum()
-
-    return {
-        "inflow": T.sum(1),
-        "out entropy": -(T * log_T).sum(2),
-        "in entropy": -(column * np.log(np.clip(column, LOG_FLOOR, None))).sum(1),
-        "max outflow": T.max(2),
-        "min log outflow": np.where(off, log_T, np.inf).min(2),
-        "log stationary π": np.log(np.clip(stationary, LOG_FLOOR, None)),
-    }
-
-
 def latent_axes(mu, log_y, metrics, d_global):
     """Which node dimensions the graph-level panels plot, ranked two ways.
 
@@ -444,21 +498,16 @@ def latent_axes(mu, log_y, metrics, d_global):
 def latent_property(data, scaler, metrics, out):
     """Where graphs land in the latent, and whether that place tracks the property.
 
-    Two rows, because the latent is per-node while the property is per-graph.
-    The top row is every node latent, 20 per graph sharing one colour; the
-    bottom is each graph's mean over its 20 nodes, the invariant summary the
-    property actually rides on. Two bases, because rate and property-relevance
-    are different things — the highest-rate dimension need not be the one the
-    target moves along, and on the b0.01 run it is not.
-
-    A run with a global latent gets two more rows. The third puts the global
-    dimension against the best node-side axis by each criterion — rate,
-    property, sorted PC1 — all as graph means, one point per graph like the
-    global itself. The fourth is the sorted PCA with the global appended, both
-    raw and weighted by sqrt(n_nodes). Raw, it is one column beside 160 and
-    barely moves the components; weighted, it counts as much as one node
-    dimension, which fills n_nodes sorted slots. Neither weight is the right
-    one, so both are drawn and the global's loading is written on each.
+    One point per graph throughout, coloured by its effective population. A run with a
+    global latent gets two rows. The first puts the global dimension against
+    the best node-side axis by each criterion — rate, property, sorted PC1 —
+    all as graph means, like the global itself. The second is the sorted PCA,
+    alone and with the global appended, both raw and weighted by sqrt(n_nodes).
+    Raw, the global is one column beside 160 and barely moves the components;
+    weighted, it counts as much as one node dimension, which fills n_nodes
+    sorted slots. Neither weight is the right one, so both are drawn and the
+    global's loading is written on each. A run without one gets the sorted PCA
+    alone.
     """
     mu = data["mu"].numpy()
     log_y = scaler.inverse(data["y"].numpy())
@@ -466,29 +515,18 @@ def latent_property(data, scaler, metrics, out):
     # stays on log y, which is what the head regresses and what R² is measured
     # against, so the two are not the same scale by design.
     decay = np.exp(log_y)
+    norm = plt.Normalize(decay.min(), decay.max())
     n_graphs, n_nodes, d_latent = mu.shape
-    flat = mu.reshape(-1, d_latent)
     graph_mean = mu.mean(1)
-    rng = np.random.default_rng(0)
-
-    ranked = latent_axes(mu, log_y, metrics, data["mu_global"].shape[1])
-    kl_per_dim, live = ranked["kl_per_dim"], ranked["live"]
-    by_rate, by_property = ranked["by_rate"], ranked["by_property"]
-    correlation, enough = ranked["correlation"], ranked["enough"]
-
-    # Law of total variance over the node axis. The share is small and the
-    # information is not: this is the 3% the property rides on.
-    between = graph_mean.var(0)[live].sum()
-    within = mu.var(1).mean(0)[live].sum()
-    between_fraction = between / (between + within)
 
     mu_global = data["mu_global"].numpy()
     d_global = mu_global.shape[1]
-    n_rows = 4 if d_global else 2
-    features = node_features(data["T"].numpy())
+    ranked = latent_axes(mu, log_y, metrics, d_global)
+    by_rate, by_property = ranked["by_rate"], ranked["by_property"]
+    n_rows = 2 if d_global else 1
 
-    # Margins held in inches, so the extra rows add height instead of squeezing.
-    height = 4.4 * n_rows
+    # Margins held in inches, so the extra row adds height instead of squeezing.
+    height = 4.4 * n_rows + 0.6
     fig = plt.figure(figsize=(16.5, height))
     grid = fig.add_gridspec(
         n_rows, 4, width_ratios=[1, 1, 1, 0.038],
@@ -499,59 +537,12 @@ def latent_property(data, scaler, metrics, out):
             for row in range(n_rows)]
     bar = fig.add_subplot(grid[:, 3])
 
-    # The per-dimension number belongs on the axis it describes, not in the
-    # title: four panels of it across one row runs the titles into each other.
-    def label(dim, basis):
-        if basis == "rate":
-            return f"latent dim {dim} — {kl_per_dim[dim]:.2f} nats"
-        return f"latent dim {dim} — r {correlation[dim]:+.2f}"
-
-    def scatter(ax, points, dims, basis, colour, small):
-        """One panel of points in two latent coordinates, coloured by the property."""
-        x = points[:, dims[0]]
-        if len(dims) >= 2:
-            y, ylabel = points[:, dims[1]], label(dims[1], basis)
-        else:
-            # d_latent = 1, or a collapsed run with a single surviving unit.
-            y, ylabel = rng.uniform(-1, 1, len(x)), "jitter — one live dimension"
-        style = dict(s=7, alpha=0.55, linewidth=0) if small else dict(
-            s=34, alpha=0.95, edgecolor=SURFACE, linewidth=0.5)
-        ax.set_xlabel(label(dims[0], basis))
-        ax.set_ylabel(ylabel)
-        return ax.scatter(x, y, c=colour, cmap=SEQUENTIAL, **style)
-
     def graph_scatter(ax, x, y, xlabel, ylabel, title):
-        ax.scatter(x, y, c=decay, cmap=SEQUENTIAL, s=34, alpha=0.95,
+        ax.scatter(x, y, c=decay, cmap=PROPERTY, norm=norm, s=34, alpha=0.95,
                    edgecolor=SURFACE, linewidth=0.5)
         ax.set_xlabel(xlabel)
         ax.set_ylabel(ylabel)
         ax.set_title(title)
-
-    node_colour = np.repeat(decay, n_nodes)
-    property_title = (
-        "Node latents, property axes" if enough
-        else "Node latents — too few graphs to rank by property"
-    )
-
-    handle = scatter(axes[0][0], flat, by_rate[:2], "rate", node_colour, True)
-    axes[0][0].set_title("Node latents, highest-rate axes")
-    scatter(axes[0][1], flat, by_property[:2], "property", node_colour, True)
-    axes[0][1].set_title(property_title)
-    for ax in axes[0][:2]:
-        ax.annotate(
-            f"{between_fraction:.1%} of this spread is between graphs;\n"
-            f"the rest is nodes differing within one",
-            xy=(0.03, 0.97), xycoords="axes fraction", va="top",
-            fontsize=7.5, color=INK_SOFT,
-        )
-
-    scatter(axes[1][0], graph_mean, by_rate[:2], "rate", decay, False)
-    axes[1][0].set_title("Graph means, highest-rate axes")
-    scatter(axes[1][1], graph_mean, by_property[:2], "property", decay, False)
-    axes[1][1].set_title(
-        "Graph means, property axes" if enough
-        else "Graph means — too few graphs to rank by property"
-    )
 
     n_sorted = n_nodes * d_latent
     descriptor = sorted_descriptor(mu)
@@ -569,85 +560,38 @@ def latent_property(data, scaler, metrics, out):
                       f"{name} PC2", f"{title} — top 2 hold {captured:.1%}")
         return coordinates, right[:2]
 
-    sorted_axis = axes[3][0] if d_global else axes[1][2]
-    coordinates, _ = pca_panel(sorted_axis, descriptor, f"sorted-{n_sorted}",
+    sorted_row = axes[-1]
+    coordinates, _ = pca_panel(sorted_row[0], descriptor, f"sorted-{n_sorted}",
                                f"All {n_sorted}, sorted invariant")
-
-    # Whether a dimension means the same thing at every node. It does, and not
-    # by luck: the encoder applies one shared pointwise readout to every node,
-    # with no node-indexed parameters anywhere, so dim d cannot mean one thing
-    # at slot 3 and another at slot 17.
-    ax = axes[0][2]
-    table = np.array([
-        [np.corrcoef(flat[:, d], values.ravel())[0, 1] for d in live]
-        for values in features.values()
-    ])
-    image = ax.imshow(table, cmap=DIVERGING, vmin=-1.0, vmax=1.0,
-                      aspect="auto", interpolation="nearest")
-    ax.set_xticks(range(len(live)), [f"dim {d}" for d in live], fontsize=7.5)
-    ax.set_yticks(range(len(features)), list(features), fontsize=7.5)
-    ax.grid(False)
-    for row in range(table.shape[0]):
-        for column in range(table.shape[1]):
-            ax.annotate(f"{table[row, column]:+.2f}", xy=(column, row), ha="center",
-                        va="center", fontsize=7, color=INK)
-    ax.set_title("What each dimension means — same readout at every node")
-    fig.colorbar(image, ax=ax, fraction=0.046, pad=0.03).ax.tick_params(labelsize=7)
 
     if d_global:
         global_kl = np.asarray(
             metrics.get("global_kl_per_dim") or np.zeros(d_global), dtype=float
         )
         # The highest-rate global dimension. On a collapsed run it is still drawn,
-        # and its rate on the axis says it is noise.
+        # though it is then noise.
         top = int(np.argmax(global_kl))
         g = mu_global[:, top]
-        g_r = np.corrcoef(g, log_y)[0, 1] if enough and g.std() > 0 else np.nan
-        g_label = f"global dim {top} — {global_kl[top]:.2f} nats, r {g_r:+.2f}"
+        g_label = f"global dim {top}"
 
-        def r_with_g(values):
-            return np.corrcoef(g, values)[0, 1] if g.std() > 0 and values.std() > 0 else np.nan
-
-        for ax, dim, basis, criterion in (
-            (axes[2][0], by_rate[0], "rate", "highest-rate"),
-            (axes[2][1], by_property[0], "property", "top property"),
+        for ax, dim, criterion in (
+            (axes[0][0], by_rate[0], "highest-rate"),
+            (axes[0][1], by_property[0], "top property"),
         ):
-            values = graph_mean[:, dim]
-            graph_scatter(ax, g, values, g_label, label(dim, basis),
-                          f"Global against the {criterion} node dim — r {r_with_g(values):+.2f}")
-        ax = axes[2][2]
+            graph_scatter(ax, g, graph_mean[:, dim], g_label, f"latent dim {dim}",
+                          f"Global against the {criterion} node dim")
+        ax = axes[0][2]
         if coordinates is not None:
             graph_scatter(ax, g, coordinates[:, 0], g_label, f"sorted-{n_sorted} PC1",
-                          f"Global against sorted-{n_sorted} PC1 — "
-                          f"r {r_with_g(coordinates[:, 0]):+.2f}")
+                          f"Global against sorted-{n_sorted} PC1")
         else:
             ax.set_axis_off()
-
-        # The graph-level counterpart of the node table above: node features
-        # reduced over nodes, plus the relaxation time the spectrum sets.
-        ax = axes[1][2]
-        T64 = data["T"].numpy().astype(np.float64)
-        second = np.sort(np.abs(np.linalg.eigvals(T64)), axis=1)[:, -2]
-        graph = {f"mean {k}": v.mean(1) for k, v in features.items()}
-        graph.update({f"std {k}": v.std(1) for k, v in features.items()})
-        graph["log relaxation time"] = np.log(
-            -1.0 / np.log(np.clip(second, LOG_FLOOR, 1 - 1e-9)))
-        column = np.array([[r_with_g(v)] for v in graph.values()])
-        ax.imshow(column, cmap=DIVERGING, vmin=-1.0, vmax=1.0,
-                  aspect="auto", interpolation="nearest")
-        ax.set_xticks([0], [f"global dim {top}"], fontsize=7.5)
-        ax.set_yticks(range(len(graph)), list(graph), fontsize=7)
-        ax.grid(False)
-        for row, value in enumerate(column[:, 0]):
-            ax.annotate(f"{value:+.2f}", xy=(0, row), ha="center", va="center",
-                        fontsize=7, color=INK)
-        ax.set_title("What the global dim means — graph features")
 
         n_joint = n_sorted + d_global
         centred_global = mu_global - mu_global.mean(0)
         for ax, weight, name in (
-            (axes[3][1], 1.0, "unweighted"),
-            (axes[3][2], np.sqrt(n_nodes), f"global ×√{n_nodes}"),
+            (sorted_row[1], 1.0, "unweighted"),
+            (sorted_row[2], np.sqrt(n_nodes), f"global ×√{n_nodes}"),
         ):
             _, right = pca_panel(ax, np.c_[descriptor, weight * centred_global],
                                  f"sorted-{n_joint}", f"Sorted + global, {name}")
@@ -658,9 +602,12 @@ def latent_property(data, scaler, metrics, out):
                     xy=(0.03, 0.97), xycoords="axes fraction", va="top",
                     fontsize=7.5, color=INK_SOFT,
                 )
+    else:
+        for ax in sorted_row[1:]:
+            ax.set_axis_off()
 
-    fig.colorbar(handle, cax=bar).set_label(
-        "decay exponent", fontsize=8, color=INK_SOFT)
+    fig.colorbar(plt.cm.ScalarMappable(norm=norm, cmap=PROPERTY), cax=bar).set_label(
+        "effective population", fontsize=8, color=INK_SOFT)
     bar.tick_params(labelsize=7)
     fig.suptitle("Latent space against the property", fontsize=12, color=INK,
                  x=0.005, ha="left")
@@ -669,7 +616,216 @@ def latent_property(data, scaler, metrics, out):
     plt.close(fig)
 
 
-def traversal(model, data, scaler, metrics, device, axis, out):
+def pdp_surface(model, data, scaler, metrics, device):
+    """The predicted effective population as a surface over the global dim and sorted-160 PC1.
+
+    ŷ depends on every latent coordinate, so the surface is a partial
+    dependence: at each grid point (g, p) every test graph has its global dim
+    set to g and its PC1 score moved to p, keeping everything else at its own
+    encoding, and the prediction is averaged over the test graphs. That is
+    the effect of these two coordinates with the rest distributed as in the
+    data, not a slice through any one graph.
+
+    The PC1 move is the traversal's: shift the sorted descriptor along the
+    component and put the values back on the nodes they came from, so every
+    other component and the within-graph spread are untouched.
+
+    Two panels, each averaging what it plots: the mean of log ŷ, and the mean
+    of ŷ, which is not exp of the first; each z label says which. Computed once and drawn twice, as
+    `latent_property_3D`'s PNG and `latent_property_3D_html`'s page. Returns
+    ``{"message": ...}`` instead when there is nothing to draw.
+    """
+    mu = data["mu"].numpy()
+    mu_global = data["mu_global"].numpy()
+    log_y = scaler.inverse(data["y"].numpy())
+    n_graphs, n_nodes, d_latent = mu.shape
+    d_global = mu_global.shape[1]
+    n_sorted = n_nodes * d_latent
+    if not d_global:
+        return {"message": "Latent property 3D — this run has no global latent"}
+    if n_graphs <= 2:
+        return {"message": "Latent property 3D — needs 3+ test graphs"}
+    decay = np.exp(log_y)
+
+    top = latent_axes(mu, log_y, metrics, d_global)["top_global"]
+    g = mu_global[:, top]
+
+    descriptor = sorted_descriptor(mu)
+    mean, _, right = principal_axes(descriptor)
+    direction = right[0]
+    score = (descriptor - mean) @ direction
+    # An eigenvector has no sign of its own; +PC1 is made to raise log y, as
+    # in the PC1 traversal.
+    if score.std() > 0 and np.corrcoef(score, log_y)[0, 1] < 0:
+        direction, score = -direction, -score
+    order = np.argsort(mu, axis=1)
+
+    g_grid = np.linspace(-PDP_GLOBAL_EXTENT, PDP_GLOBAL_EXTENT, PDP_GRID)
+    p_grid = np.linspace(-PDP_PC1_EXTENT, PDP_PC1_EXTENT, PDP_GRID)
+
+    # One batch per PC1 value: every g on the grid for every test graph.
+    pdp_log = np.empty((PDP_GRID, PDP_GRID))
+    pdp_raw = np.empty((PDP_GRID, PDP_GRID))
+    with torch.no_grad():
+        for i, p in enumerate(p_grid):
+            z = unsort(descriptor + np.outer(p - score, direction), order)
+            z = np.tile(z, (PDP_GRID, 1, 1))
+            z_global = np.tile(mu_global, (PDP_GRID, 1))
+            z_global[:, top] = np.repeat(g_grid, n_graphs)
+            log_y_hat = model.predict(
+                *(torch.as_tensor(a, dtype=torch.float32, device=device) for a in (z, z_global))
+            ).cpu().numpy()
+            log_y_hat = scaler.inverse(log_y_hat).reshape(PDP_GRID, n_graphs)
+            # Mean over the test graphs, the axis the partial dependence integrates out.
+            pdp_log[i] = log_y_hat.mean(1)
+            pdp_raw[i] = np.exp(log_y_hat).mean(1)
+
+    panels = []
+    for surface, colour, true, zlabel in (
+        (pdp_log, np.exp(pdp_log), log_y, "mean log ŷ"),
+        (pdp_raw, pdp_raw, decay, "mean ŷ"),
+    ):
+        # The surface under each test graph, where its stem starts.
+        under = RegularGridInterpolator((p_grid, g_grid), surface, bounds_error=False,
+                                        fill_value=None)(np.c_[score, g])
+        panels.append({"surface": surface, "colour": colour, "true": true, "under": under,
+                       "zlabel": zlabel})
+
+    # Colour is the effective population on both panels, on a log scale so the two
+    # read alike and the skewed upper end does not take the whole ramp.
+    return {
+        "g": g, "score": score, "decay": decay, "g_grid": g_grid, "p_grid": p_grid,
+        "panels": panels,
+        "low": min(decay.min(), np.exp(pdp_log).min(), pdp_raw.min()),
+        "high": max(decay.max(), np.exp(pdp_log).max(), pdp_raw.max()),
+        "xlabel": f"global dim {top}",
+        "ylabel": f"sorted-{n_sorted} PC1",
+        "title": (f"Partial dependence of the predicted effective population on global dim {top} "
+                  f"and sorted-{n_sorted} PC1"),
+    }
+
+
+def latent_property_3D(pdp, metrics, out):
+    """`pdp_surface` as a still: two 3D panels, test graphs stemmed to the surface."""
+    if "message" in pdp:
+        return placeholder(metrics, out, pdp["message"])
+    g, score, decay = pdp["g"], pdp["score"], pdp["decay"]
+    G, P = np.meshgrid(pdp["g_grid"], pdp["p_grid"])
+    norm = LogNorm(pdp["low"], pdp["high"])
+
+    fig = plt.figure(figsize=(16, 7.6))
+    grid = fig.add_gridspec(1, 3, width_ratios=[1, 1, 0.03], left=0.01, right=0.95,
+                            top=0.88, bottom=0.1, wspace=0.08)
+    for column, panel in enumerate(pdp["panels"]):
+        ax = fig.add_subplot(grid[0, column], projection="3d")
+        faces = PROPERTY(norm(panel["colour"]))
+        faces[..., 3] = 0.72
+        ax.plot_surface(G, P, panel["surface"], facecolors=faces, rstride=1, cstride=1,
+                        linewidth=0, antialiased=False, shade=False)
+        for x, y, top_z, bottom_z in zip(g, score, panel["true"], panel["under"]):
+            ax.plot([x, x], [y, y], [bottom_z, top_z], color=INK_SOFT, lw=0.5, alpha=0.5)
+        ax.scatter(g, score, panel["true"], c=decay, cmap=PROPERTY, norm=norm, s=18,
+                   edgecolor=INK, linewidth=0.3, depthshade=False)
+
+        ax.set_xlabel(pdp["xlabel"])
+        ax.set_ylabel(pdp["ylabel"])
+        ax.set_zlabel(panel["zlabel"])
+        ax.view_init(elev=PDP_VIEW[0], azim=PDP_VIEW[1])
+        for pane in (ax.xaxis, ax.yaxis, ax.zaxis):
+            pane.set_pane_color(SURFACE)
+        ax.tick_params(labelsize=7)
+
+    bar = fig.colorbar(plt.cm.ScalarMappable(norm=norm, cmap=PROPERTY),
+                       cax=fig.add_subplot(grid[0, 2]))
+    bar.set_label("effective population — partial dependence on the surface, true for test graphs",
+                  fontsize=8, color=INK_SOFT)
+    bar.ax.tick_params(labelsize=7)
+    fig.suptitle(pdp["title"], fontsize=12, color=INK, x=0.005, ha="left")
+    footer(fig, metrics)
+    fig.savefig(out)
+    plt.close(fig)
+
+
+def latent_property_3D_html(pdp, metrics, out):
+    """`pdp_surface` as a page to turn and hover, plotly.js embedded so it opens offline.
+
+    Colour carries log₁₀ of the effective population on one shared axis, the LogNorm of
+    the PNG, with the bar labelled in the effective population itself. Hovering a test
+    graph gives its index, coordinates, true value and the surface under it.
+    """
+    if "message" in pdp:
+        fig = go.Figure()
+        fig.add_annotation(text=pdp["message"], x=0.5, y=0.5, xref="paper", yref="paper",
+                           showarrow=False, font=dict(size=16, color=INK_SOFT))
+        fig.update_xaxes(visible=False)
+        fig.update_yaxes(visible=False)
+        return write_html(fig, metrics, out)
+    g, score, decay = pdp["g"], pdp["score"], pdp["decay"]
+    low, high = np.log10(pdp["low"]), np.log10(pdp["high"])
+    ticks = [v for v in (20, 50, 100, 200, 500, 1000, 2000, 5000, 10000)
+             if low <= np.log10(v) <= high]
+
+    fig = make_subplots(1, 2, specs=[[{"type": "scene"}] * 2], horizontal_spacing=0.02)
+    elevation, azimuth = np.radians(PDP_VIEW)
+    eye = 2.1 * np.array([np.cos(elevation) * np.cos(azimuth),
+                          np.cos(elevation) * np.sin(azimuth), np.sin(elevation)])
+    customdata = np.c_[np.arange(len(g)), decay]
+    for column, panel in enumerate(pdp["panels"], start=1):
+        value = "log ŷ %{z:.3f}" if column == 1 else "ŷ %{z:.4g}"
+        fig.add_trace(go.Surface(
+            x=pdp["g_grid"], y=pdp["p_grid"], z=panel["surface"],
+            surfacecolor=np.log10(panel["colour"]), coloraxis="coloraxis", opacity=0.8,
+            hovertemplate=f"global %{{x:.2f}}<br>PC1 %{{y:.2f}}<br>{value}<extra>surface</extra>",
+        ), 1, column)
+        stems = np.full((len(g), 3, 3), np.nan)
+        stems[:, :2] = np.stack([np.c_[g, score, panel["under"]],
+                                 np.c_[g, score, panel["true"]]], 1)
+        stems = stems.reshape(-1, 3)
+        fig.add_trace(go.Scatter3d(
+            x=stems[:, 0], y=stems[:, 1], z=stems[:, 2], mode="lines", hoverinfo="skip",
+            line=dict(color=INK_SOFT, width=1.5), opacity=0.5, showlegend=False,
+        ), 1, column)
+        true_text = "log y %{z:.3f}" if column == 1 else "y %{z:.4g}"
+        fig.add_trace(go.Scatter3d(
+            x=g, y=score, z=panel["true"], mode="markers", showlegend=False,
+            customdata=np.c_[customdata, panel["under"]],
+            marker=dict(size=4, color=np.log10(decay), coloraxis="coloraxis",
+                        line=dict(color=INK, width=0.5)),
+            hovertemplate=("test graph %{customdata[0]:.0f}<br>global %{x:.3f}<br>"
+                           f"PC1 %{{y:.3f}}<br>true {true_text}<br>"
+                           "surface under it %{customdata[2]:.4g}<extra></extra>"),
+        ), 1, column)
+        fig.update_scenes(
+            dict(xaxis_title=pdp["xlabel"], yaxis_title=pdp["ylabel"],
+                 zaxis_title=panel["zlabel"], aspectratio=dict(x=1, y=1, z=0.75),
+                 camera=dict(eye=dict(zip("xyz", eye))),
+                 **{f"{a}axis": dict(backgroundcolor=SURFACE, gridcolor=GRID) for a in "xyz"}),
+            row=1, col=column,
+        )
+    fig.update_layout(
+        title=dict(text=pdp["title"], x=0.005, font=dict(size=18, color=INK)),
+        coloraxis=dict(
+            colorscale=[[t, to_hex(PROPERTY(t))] for t in np.linspace(0, 1, 11)],
+            cmin=low, cmax=high,
+            colorbar=dict(title=dict(text="effective population", side="right"),
+                          tickvals=np.log10(ticks), ticktext=[str(v) for v in ticks]),
+        ),
+        height=800, margin=dict(l=10, r=10, t=110, b=40),
+    )
+    write_html(fig, metrics, out)
+
+
+def write_html(fig, metrics, out):
+    """The plotly counterpart of `footer` then `savefig`: house colours, provenance, one file."""
+    fig.add_annotation(text=provenance(metrics), x=0.0, y=0.0, xref="paper", yref="paper",
+                       xanchor="left", yanchor="top", yshift=-18, showarrow=False,
+                       font=dict(size=10, color=INK_SOFT))
+    fig.update_layout(paper_bgcolor=SURFACE, plot_bgcolor=SURFACE,
+                      font=dict(color=INK_SOFT))
+    fig.write_html(out, include_plotlyjs=True)
+
+
+def traversal(model, data, scaler, metrics, device, axis, out, spatial=False):
     """Decode along one latent axis from real encodings: test graphs by steps.
 
     Each row starts from one test graph's posterior mean — the same graphs
@@ -685,6 +841,9 @@ def traversal(model, data, scaler, metrics, device, axis, out):
     the nodes they came from — rank r of dimension d returns to the node that
     held rank r. Past a few σ values can cross ranks; the assignment is still
     by the original ranks, which is the only inverse the sort has.
+
+    ``spatial`` draws each decoded matrix as a landscape, aligned outward from
+    the reconstruction in the centre column.
     """
     mu = data["mu"].numpy()
     mu_global = data["mu_global"].numpy()
@@ -731,9 +890,7 @@ def traversal(model, data, scaler, metrics, device, axis, out):
 
         def latents(graph):
             moved = descriptor[graph] + np.outer(sigma * TRAVERSAL_STEPS, direction)
-            moved = moved.reshape(n_steps, n_nodes, d_latent)
-            z = np.empty_like(moved)
-            np.put_along_axis(z, np.broadcast_to(order[graph], moved.shape), moved, axis=1)
+            z = unsort(moved, np.broadcast_to(order[graph], (n_steps, n_nodes, d_latent)))
             return z, np.repeat(mu_global[graph][None], n_steps, 0)
 
         title = (f"Sorted-{n_sorted} {axis} traversal: z = μ + t·σ·v — "
@@ -754,8 +911,12 @@ def traversal(model, data, scaler, metrics, device, axis, out):
             header = "t = 0 (recon)" if t == 0 else f"t = {t:+d}σ"
             titles[row].append(f"{header}\n{value}" if row == 0 else value)
 
-    draw_matrix_grid(decoded, titles, [f"test example {row}" for row in range(rows)],
-                     reconstruction_floor(data, rows), title, metrics, out)
+    labels = [f"test example {row}" for row in range(rows)]
+    if spatial:
+        draw_spatial_grid(decoded, titles, labels, centre, title, metrics, out)
+    else:
+        draw_matrix_grid(decoded, titles, labels, reconstruction_floor(data, rows),
+                         title, metrics, out)
 
 
 def align_nodes(mu_a, mu_b):
@@ -771,7 +932,7 @@ def align_nodes(mu_a, mu_b):
     return columns[np.argsort(rows)]
 
 
-def interpolation(model, data, scaler, metrics, device, out):
+def interpolation(model, data, scaler, metrics, device, out, spatial=False):
     """Straight lines in latent space between test graphs, after node matching.
 
     Row i runs from test example i to example i + 1, wrapping, so the three
@@ -780,6 +941,9 @@ def interpolation(model, data, scaler, metrics, device, out):
     is graph-level and interpolates as it is. Everything is drawn in A's node
     order, so the right end is B's reconstruction permuted by the match, which
     the decoder's equivariance makes exact.
+
+    ``spatial`` draws each decoded matrix as a landscape, aligned outward from
+    A's reconstruction on the left.
     """
     mu = data["mu"].numpy()
     mu_global = data["mu_global"].numpy()
@@ -814,11 +978,13 @@ def interpolation(model, data, scaler, metrics, device, out):
                       else f"α = {column}/{INTERPOLATION_STEPS - 1}")
             titles[row].append(f"{header}\n{value}" if row == 0 else value)
 
-    draw_matrix_grid(
-        decoded, titles, labels, reconstruction_floor(data, rows),
-        "Interpolation: z = (1 − α)·μ_A + α·P·μ_B, P the node match; "
-        "global z_g interpolated unmatched", metrics, out,
-    )
+    title = ("Interpolation: z = (1 − α)·μ_A + α·P·μ_B, P the node match; "
+             "global z_g interpolated unmatched")
+    if spatial:
+        draw_spatial_grid(decoded, titles, labels, 0, title, metrics, out)
+    else:
+        draw_matrix_grid(decoded, titles, labels, reconstruction_floor(data, rows),
+                         title, metrics, out)
 
 
 def graph_views(mu, mu_global, log_y, metrics):
@@ -838,7 +1004,6 @@ def graph_views(mu, mu_global, log_y, metrics):
     n_graphs, n_nodes, d_latent = mu.shape
     d_global = mu_global.shape[1]
     ranked = latent_axes(mu, log_y, metrics, d_global)
-    correlation, kl_per_dim = ranked["correlation"], ranked["kl_per_dim"]
     n_sorted = n_nodes * d_latent
 
     def two(order):
@@ -846,12 +1011,10 @@ def graph_views(mu, mu_global, log_y, metrics):
         order = list(order)
         return (order + [d for d in range(d_latent) if d not in order])[:2]
 
-    def label(dim, basis):
-        if basis == "rate":
-            return f"graph mean, dim {dim} — {kl_per_dim[dim]:.2f} nats"
-        return f"graph mean, dim {dim} — r {correlation[dim]:+.2f}"
+    def label(dim):
+        return f"graph mean, dim {dim}"
 
-    def means(title, order, basis):
+    def means(title, order):
         """A graph-mean view on the first two dimensions of `order`.
 
         At d_latent = 1 there is no second dimension to pad with, so y is held
@@ -862,14 +1025,14 @@ def graph_views(mu, mu_global, log_y, metrics):
         """
         dims = two(order)
         if len(dims) == 2:
-            return (title, label(dims[0], basis), label(dims[1], basis),
+            return (title, label(dims[0]), label(dims[1]),
                     lambda z, z_global: z.mean(1)[:, dims])
-        return (title, label(dims[0], basis), "held at 0 — one latent dimension",
+        return (title, label(dims[0]), "held at 0 — one latent dimension",
                 lambda z, z_global: np.c_[z.mean(1)[:, dims[0]], np.zeros(len(z))])
 
     views = [
-        means("Graph means, highest-rate axes", ranked["by_rate"], "rate"),
-        means("Graph means, property axes", ranked["by_property"], "property"),
+        means("Graph means, highest-rate axes", ranked["by_rate"]),
+        means("Graph means, property axes", ranked["by_property"]),
     ]
 
     if n_graphs > 2:
@@ -883,10 +1046,10 @@ def graph_views(mu, mu_global, log_y, metrics):
 
     if d_global:
         top = ranked["top_global"]
-        g_label = f"global dim {top} — {ranked['global_kl'][top]:.2f} nats"
-        for dim, basis, criterion in ((ranked["by_rate"][0], "rate", "highest-rate"),
-                                      (ranked["by_property"][0], "property", "top property")):
-            views.append((f"Global against the {criterion} node dim", g_label, label(dim, basis),
+        g_label = f"global dim {top}"
+        for dim, criterion in ((ranked["by_rate"][0], "highest-rate"),
+                               (ranked["by_property"][0], "top property")):
+            views.append((f"Global against the {criterion} node dim", g_label, label(dim),
                           lambda z, z_global, dim=dim: np.c_[z_global[:, top], z.mean(1)[:, dim]]))
         if sorted_pcs is not None:
             views.append((f"Global against sorted-{n_sorted} PC1", g_label,
@@ -917,7 +1080,8 @@ def path_columns(log_y_hat, n_columns):
 
     Even in log ŷ rather than in iteration because BFGS gains most of its ground
     in a few steps; evenly spaced iterations would be mostly the same matrix.
-    The path need not be monotone in ŷ once the penalty is on, so this is
+    It serves a descent as well, the targets then running downhill. The
+    path need not be monotone in ŷ once the penalty is on, so this is
     nearest-value, not interpolation. Repeats collapse, and the columns they
     free go to the unused iterates, evenly in iteration.
     """
@@ -932,22 +1096,31 @@ def path_columns(log_y_hat, n_columns):
 
 
 def decay_text(log_y):
-    """A decay exponent that may have run off to 10^1000 without becoming inf."""
-    if log_y < np.log(1e6):
+    """An effective population that may have run off to 10^±1000 without becoming inf or 0."""
+    if np.log(1.0) <= log_y < np.log(1e6):
         return f"{np.exp(log_y):.0f}"
-    return f"10^{log_y / np.log(10):.1f}"
+    if np.log(1e-3) <= log_y < np.log(1.0):
+        return f"{np.exp(log_y):.3g}"
+    # Past 10^±10⁴ the exponent itself needs significant figures, not decimals.
+    exponent = log_y / np.log(10)
+    return f"10^{exponent:.1f}" if abs(exponent) < 1e4 else f"10^({exponent:.3g})"
 
 
-def optimization(model, data, scaler, metrics, device, graph, lam, out):
+def optimization(model, data, scaler, metrics, device, graph, lam, sense, out, spatial=False,
+                 search=optimize.search):
     """BFGS from one test graph: its decoded path, then the path in latent space.
 
     The top row is decoded matrices at selected iterates, drawn like the
     traversals. Below are the graph-level views of `latent_property` with the
     100 test graphs faded behind the path: every accepted iterate, the start
     square, the end a star, arrows in iteration order. The background is
-    coloured by the true exponent and the path by the predicted one, on one
+    coloured by the true effective population and the path by the predicted one, on one
     scale fitted to the data, so a path that leaves the data's range clips at
-    the top colour and its final value is written on the panel instead.
+    the top colour, or the bottom one when minimizing, and its final value is
+    written on the panel instead. ``sense`` is +1 to ascend, −1 to descend.
+
+    ``spatial`` draws each decoded matrix as a landscape, aligned outward from
+    the start. ``search`` runs the BFGS, so the two views can share one run.
     """
     mu = data["mu"].numpy()
     mu_global = data["mu_global"].numpy()
@@ -956,7 +1129,7 @@ def optimization(model, data, scaler, metrics, device, graph, lam, out):
         return placeholder(metrics, out, f"Optimization — no test example {graph}")
     decay = np.exp(log_y)
 
-    path = optimize.ascend(model, scaler, mu[graph], mu_global[graph], lam)
+    path = search(model, scaler, mu[graph], mu_global[graph], lam, sense)
     columns = path_columns(path.log_y_hat, N_OPTIMIZATION_COLUMNS)
     decoded, _ = decode_batch(model, device, scaler, path.z[columns], path.z_global[columns])
     views = graph_views(mu, mu_global, log_y, metrics)
@@ -971,9 +1144,22 @@ def optimization(model, data, scaler, metrics, device, graph, lam, out):
     top = outer[0].subgridspec(1, N_OPTIMIZATION_COLUMNS + 1,
                                width_ratios=[1] * N_OPTIMIZATION_COLUMNS + [0.05], wspace=0.12)
     floor = reconstruction_floor(data, N_EXAMPLES)
+    if spatial:
+        # As `draw_spatial_grid`: each layout onto its aligned neighbour, from the start.
+        matrices = [np.nan_to_num(10.0 ** m.astype(np.float64)) for m in decoded]
+        layouts = [landscape.positions(T)[0] for T in matrices]
+        for column in range(1, len(layouts)):
+            layouts[column] = landscape.align(layouts[column], layouts[column - 1], scale=False)
+        bounds = landscape.limits(*layouts)
+        heaviest = max(T.max() for T in matrices)
     for column, (k, matrix) in enumerate(zip(columns, decoded)):
         ax = fig.add_subplot(top[column])
-        image = ax.imshow(matrix, cmap=SEQUENTIAL, vmin=floor, vmax=0.0, interpolation="nearest")
+        if spatial:
+            landscape.draw(ax, matrices[column], layouts[column], heaviest, bounds,
+                           width_max=2.2, node_size=45, label_size=4.5)
+        else:
+            image = ax.imshow(matrix, cmap=SEQUENTIAL, vmin=floor, vmax=0.0,
+                              interpolation="nearest")
         ax.set_xticks([])
         ax.set_yticks([])
         ax.grid(False)
@@ -983,19 +1169,21 @@ def optimization(model, data, scaler, metrics, device, graph, lam, out):
         if k == 0:
             text += f"  ·  true {decay[graph]:.0f}"
         ax.set_title(text, fontsize=9)
-    bar = fig.colorbar(image, cax=fig.add_subplot(top[N_OPTIMIZATION_COLUMNS]))
-    bar.set_label("log₁₀ T̂", fontsize=8, color=INK_SOFT)
-    bar.ax.tick_params(labelsize=7)
+    if not spatial:
+        bar = fig.colorbar(image, cax=fig.add_subplot(top[N_OPTIMIZATION_COLUMNS]))
+        bar.set_label("log₁₀ T̂", fontsize=8, color=INK_SOFT)
+        bar.ax.tick_params(labelsize=7)
 
     lower = outer[1].subgridspec(n_rows, 5, width_ratios=[1, 1, 1, 1, 0.05],
                                  wspace=0.32, hspace=0.42)
     norm = plt.Normalize(decay.min(), decay.max())
     # Colour only; the text on each panel carries the real value past the clip.
-    path_colour = np.exp(np.minimum(path.log_y_hat, np.log(decay.max()) + 1.0))
+    path_colour = np.exp(np.clip(path.log_y_hat, np.log(decay.min()) - 1.0,
+                                 np.log(decay.max()) + 1.0))
     for index, (title, xlabel, ylabel, project) in enumerate(views):
         ax = fig.add_subplot(lower[index // 4, index % 4])
         background = project(mu, mu_global)
-        ax.scatter(background[:, 0], background[:, 1], c=decay, cmap=SEQUENTIAL,
+        ax.scatter(background[:, 0], background[:, 1], c=decay, cmap=PROPERTY,
                    norm=norm, s=30, alpha=0.4, linewidth=0)
         points = project(path.z, path.z_global)
         for k in range(len(points) - 1):
@@ -1005,7 +1193,7 @@ def optimization(model, data, scaler, metrics, device, graph, lam, out):
                                             mutation_scale=8, shrinkA=2, shrinkB=2))
         for sl, marker, size in ((slice(1, -1), "o", 24), (slice(0, 1), "s", 70),
                                  (slice(-1, None), "*", 190)):
-            ax.scatter(points[sl, 0], points[sl, 1], c=path_colour[sl], cmap=SEQUENTIAL,
+            ax.scatter(points[sl, 0], points[sl, 1], c=path_colour[sl], cmap=PROPERTY,
                        norm=norm, marker=marker, s=size, edgecolor=INK, linewidth=0.8,
                        zorder=3)
         ax.set_title(title)
@@ -1019,7 +1207,7 @@ def optimization(model, data, scaler, metrics, device, graph, lam, out):
         np.c_[path.z.reshape(len(path.z), -1), path.z_global][-1]
         - np.r_[path.z[0].ravel(), path.z_global[0]])
     ax.text(0.0, 1.0,
-            f"test example {graph}, true decay exponent {decay[graph]:.0f}\n"
+            f"test example {graph}, true effective population {decay[graph]:.0f}\n"
             f"ŷ {decay_text(path.log_y_hat[0])} → {decay_text(path.log_y_hat[-1])}\n"
             f"‖x − x₀‖ = {moved:.3g} after {path.nit} iterations,\n"
             f"{path.nfev} evaluations\n"
@@ -1029,21 +1217,23 @@ def optimization(model, data, scaler, metrics, device, graph, lam, out):
                                ("o", 24, "BFGS iterate"), ("*", 190, "final iterate")):
         ax.scatter([], [], marker=marker, s=size, color=SURFACE, edgecolor=INK,
                    linewidth=0.8, label=name)
-    ax.scatter([], [], s=30, color=TRAIN, alpha=0.4, linewidth=0,
-               label="test graphs, true exponent")
+    ax.scatter([], [], s=30, color=PROPERTY_SOLID, alpha=0.4, linewidth=0,
+               label="test graphs, true effective population")
     ax.legend(loc="lower left", fontsize=8)
 
     # A mappable of its own, so the bar shows the colours at full strength
     # rather than at the background's transparency.
-    bar = fig.colorbar(plt.cm.ScalarMappable(norm=norm, cmap=SEQUENTIAL),
-                       cax=fig.add_subplot(lower[:, 4]), extend="max")
-    bar.set_label("decay exponent — true for test graphs, predicted on the path",
+    bar = fig.colorbar(plt.cm.ScalarMappable(norm=norm, cmap=PROPERTY),
+                       cax=fig.add_subplot(lower[:, 4]), extend="max" if sense > 0 else "min")
+    bar.set_label("effective population — true for test graphs, predicted on the path",
                   fontsize=8, color=INK_SOFT)
     bar.ax.tick_params(labelsize=7)
 
-    objective = ("f(x) = −log ŷ(x), unregularized" if lam == 0
-                 else f"f(x) = −log ŷ(x) + (λ/2)·‖x − x₀‖², λ = {lam:g}")
-    fig.suptitle(f"BFGS latent ascent from test example {graph}: {objective}",
+    sign, direction = ("−", "ascent") if sense > 0 else ("+", "descent")
+    objective = (f"f(x) = {sign}log ŷ(x), unregularized" if lam == 0
+                 else f"f(x) = {sign}log ŷ(x) + (λ/2)·‖x − x₀‖², λ = {lam:g}")
+    edges = "   |   edge width ∝ T̂_ij" if spatial else ""
+    fig.suptitle(f"BFGS latent {direction} from test example {graph}: {objective}{edges}",
                  fontsize=12, color=INK, x=0.005, ha="left")
     footer(fig, metrics)
     fig.savefig(out)
@@ -1051,7 +1241,7 @@ def optimization(model, data, scaler, metrics, device, graph, lam, out):
 
 
 def decode_batch(model, device, scaler, z, z_global):
-    """Latents to ``(log10 T̂, predicted decay exponent)``, one entry per step."""
+    """Latents to ``(log10 T̂, predicted effective population)``, one entry per step."""
     with torch.no_grad():
         z, z_global = (torch.as_tensor(a, dtype=torch.float32, device=device)
                        for a in (z, z_global))
@@ -1090,8 +1280,49 @@ def draw_matrix_grid(decoded, titles, row_labels, floor, title, metrics, out):
     colorbar.set_label("log₁₀ T̂", fontsize=8, color=INK_SOFT)
     colorbar.ax.tick_params(labelsize=7)
 
-    fig.suptitle(f"{title}   |   ŷ is the predicted decay exponent", fontsize=12,
+    fig.suptitle(f"{title}   |   ŷ is the predicted effective population", fontsize=12,
                  color=INK, x=0.005, ha="left")
+    footer(fig, metrics)
+    fig.savefig(out)
+    plt.close(fig)
+
+
+def draw_spatial_grid(decoded, titles, row_labels, anchor, title, metrics, out):
+    """Rows of decoded matrices as spatial graphs, each row on shared axes.
+
+    A row keeps its node labels from column to column, so each layout is
+    aligned by Procrustes onto its already-aligned neighbour, working outward
+    from the ``anchor`` column. Chaining keeps a smooth path from flipping where
+    a far column would match the anchor poorly. Edge widths share one scale per
+    row, set by its heaviest entry.
+    """
+    rows, columns = len(decoded), len(decoded[0])
+    height = 2.5 * rows + 1.1
+    fig = plt.figure(figsize=(18, height))
+    grid = fig.add_gridspec(rows, columns, left=0.045, right=0.99,
+                            top=1 - 0.95 / height, bottom=0.3 / height,
+                            wspace=0.08, hspace=0.32)
+    for row in range(rows):
+        matrices = [np.nan_to_num(10.0 ** m.astype(np.float64)) for m in decoded[row]]
+        layouts = [landscape.positions(T)[0] for T in matrices]
+        for column in list(range(anchor + 1, columns)) + list(range(anchor - 1, -1, -1)):
+            neighbour = column - 1 if column > anchor else column + 1
+            layouts[column] = landscape.align(layouts[column], layouts[neighbour], scale=False)
+        bounds = landscape.limits(*layouts)
+        heaviest = max(T.max() for T in matrices)
+        for column in range(columns):
+            ax = fig.add_subplot(grid[row, column])
+            landscape.draw(ax, matrices[column], layouts[column], heaviest, bounds,
+                           width_max=2.2, node_size=45, label_size=4.5)
+            ax.set_xticks([])
+            ax.set_yticks([])
+            ax.grid(False)
+            ax.set_title(titles[row][column], fontsize=9)
+            if column == 0:
+                ax.set_ylabel(row_labels[row], fontsize=8)
+
+    fig.suptitle(f"{title}   |   ŷ is the predicted effective population, edge width ∝ T̂_ij",
+                 fontsize=12, color=INK, x=0.005, ha="left")
     footer(fig, metrics)
     fig.savefig(out)
     plt.close(fig)
@@ -1119,32 +1350,55 @@ def visualize(run, num_threads=1):
     model_cfg = TMVAEConfig(**checkpoint["model_config"])
     data = evaluate_module.collect(model, splits.test, model_cfg, device, cfg["batch_size"])
     history = read_history(run_dir)
+    # The partial-dependence grid is a million predictions; the PNG and the
+    # page share one computation, whichever asks first.
+    pdp = functools.cache(lambda: pdp_surface(model, data, scaler, metrics, device))
 
     figures = run_dir / paths.FIGURES
     traversals = figures / paths.TRAVERSALS
+    optimizations = figures / paths.OPTIMIZATION
     traversals.mkdir(parents=True, exist_ok=True)
+    (optimizations / paths.OPTIMIZATION_SPATIAL).mkdir(parents=True, exist_ok=True)
+    # Each BFGS run is drawn twice, as matrices and as landscapes; run it once.
+    # Keyed by (graph, λ, sense), which fixes the run; the arrays cannot be hashed.
+    search = functools.cache(lambda graph, lam, sense: optimize.search(
+        model, scaler, data["mu"][graph].numpy(), data["mu_global"][graph].numpy(), lam, sense))
     diagnostics = {
         "training_curve": lambda p: training_curve(history, metrics, p),
         "predictions": lambda p: predictions(data, scaler, metrics, p),
         "reconstruction": lambda p: reconstruction(data, metrics, p),
+        "spatial_graph": lambda p: spatial_graph(data, metrics, p),
         "latent": lambda p: latent(metrics, p),
         "latent_property": lambda p: latent_property(data, scaler, metrics, p),
+        "latent_property_3D": lambda p: latent_property_3D(pdp(), metrics, p),
+    }
+    interactive = {
+        "latent_property_3D": lambda p: latent_property_3D_html(pdp(), metrics, p),
     }
     jobs = [(figures / f"{name}.png", diagnostics[name]) for name in paths.DIAGNOSTIC_FIGURES]
+    jobs += [(figures / f"{name}.html", interactive[name])
+             for name in paths.INTERACTIVE_FIGURES]
     jobs += [
-        (traversals / f"traversal_{axis}.png",
-         lambda p, a=axis: traversal(model, data, scaler, metrics, device, a, p))
-        for axis in paths.TRAVERSAL_AXES
+        (traversals / f"traversal_{axis}{view}.png",
+         lambda p, a=axis, v=view: traversal(model, data, scaler, metrics, device, a, p,
+                                             spatial=v == paths.SPATIAL))
+        for axis in paths.TRAVERSAL_AXES for view in paths.PATH_VIEWS
     ]
     interpolations = {
-        "interpolation": lambda p: interpolation(model, data, scaler, metrics, device, p),
+        "interpolation": lambda p, spatial: interpolation(model, data, scaler, metrics,
+                                                          device, p, spatial),
     }
-    jobs += [(traversals / f"{name}.png", interpolations[name])
-             for name in paths.INTERPOLATIONS]
+    jobs += [(traversals / f"{name}{view}.png",
+              lambda p, n=name, v=view: interpolations[n](p, v == paths.SPATIAL))
+             for name in paths.INTERPOLATIONS for view in paths.PATH_VIEWS]
     jobs += [
-        (traversals / f"optimization_g{graph}{variant}.png",
-         lambda p, g=graph, lam=OPTIMIZATION_LAMBDA[variant]:
-             optimization(model, data, scaler, metrics, device, g, lam, p))
+        (optimizations / folder / f"{sense}_g{graph}{variant}.png",
+         lambda p, g=graph, lam=OPTIMIZATION_LAMBDA[variant], s=OPTIMIZATION_SENSE[sense],
+                spatial=bool(folder):
+             optimization(model, data, scaler, metrics, device, g, lam, s, p, spatial,
+                          lambda *_, g=g, lam=lam, s=s: search(g, lam, s)))
+        for folder in ("", paths.OPTIMIZATION_SPATIAL)
+        for sense in paths.OPTIMIZATION_SENSES
         for graph in paths.OPTIMIZATION_GRAPHS for variant in paths.OPTIMIZATION_VARIANTS
     ]
 

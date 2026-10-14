@@ -32,6 +32,7 @@ def real_T():
 def make(**kw):
     torch.manual_seed(0)
     model = TMVAE(TMVAEConfig(**kw)).double().eval()
+    model.fit_input_stats(random_T(16, kw.get("n_nodes", 20), seed=5))
     return model
 
 
@@ -58,8 +59,9 @@ CONFIGS = [
     dict(BASE, d_global=4),
     dict(BASE, pooling="mean"),
     dict(BASE, pooling="attention"),
+    dict(BASE, node_norm="fixed", edge_norm="fixed", d_global=2),
 ]
-IDS = ["node-only", "hybrid", "mean-pool", "attention-pool"]
+IDS = ["node-only", "hybrid", "mean-pool", "attention-pool", "fixed-norm"]
 
 
 @pytest.mark.parametrize("cfg", CONFIGS, ids=IDS)
@@ -173,6 +175,55 @@ def test_ascent_commutes_with_relabelling(cfg):
     assert model.predict(z, torch.zeros(4, model.config.d_global, dtype=torch.float64)).mean() != 0
 
 
+def test_fixed_norm_standardizes_off_diagonal_features(real_T):
+    """Fitted constants put the training features at mean 0, sd 1, per feature."""
+    from tm_ml.models import edge_features, node_features
+
+    T, _ = real_T
+    model = TMVAE(TMVAEConfig(n_nodes=T.shape[-1], node_norm="fixed", edge_norm="fixed"))
+    model.fit_input_stats(T)
+
+    x = model.node_in[0](node_features(T, model.config.log_eps)).reshape(-1, 5)
+    assert torch.allclose(x.mean(0), torch.zeros(5), atol=1e-4)
+    assert torch.allclose(x.std(0), torch.ones(5), atol=1e-4)
+
+    off = off_diagonal(T.shape[-1], T.device)
+    e = model.edge_in.net[0](edge_features(T, model.config.log_eps))[:, off]
+    assert torch.allclose(e[..., :4].mean((0, 1)), torch.zeros(4), atol=1e-4)
+    assert torch.allclose(e[..., :4].std((0, 1)), torch.ones(4), atol=1e-4)
+    # is_self is constant off the diagonal, so it passes through untouched
+    assert (e[..., 4] == 0).all()
+
+
+def test_fixed_norm_keeps_the_scale_layernorm_drops():
+    """Symmetric pairs at 1e-2 and 1e-8: near-identical under LayerNorm, not here."""
+    from tm_ml.models import Standardize
+
+    def pair(t):
+        return torch.tensor([t, t, float(np.log(t)), float(np.log(t)), 0.0])
+
+    a, b = pair(1e-2), pair(1e-8)
+    ln = torch.nn.LayerNorm(5)
+    assert (ln(a) - ln(b)).abs().max() < 0.01
+
+    fixed = Standardize(5)
+    fixed.fit(torch.stack([pair(t) for t in (1e-1, 1e-2, 1e-4, 1e-6, 1e-8)]))
+    assert (fixed(a) - fixed(b)).abs().max() > 1.0
+
+
+def test_unfitted_fixed_norm_is_nan_not_identity():
+    model = TMVAE(TMVAEConfig(n_nodes=6, node_norm="fixed", edge_norm="fixed"))
+    out = model(random_T(2, 6).float(), sample=False)
+    assert torch.isnan(out.log_y_hat).all()
+
+
+def test_layernorm_state_dict_keys_are_unchanged():
+    """Checkpoints from before the norm fields existed must still load."""
+    keys = TMVAE(TMVAEConfig(n_nodes=6)).state_dict().keys()
+    assert "node_in.0.weight" in keys and "edge_in.net.0.weight" in keys
+    assert not any(k.endswith((".mean", ".std")) for k in keys)
+
+
 def test_masked_softmax_gives_the_diagonal_no_gradient():
     n = 5
     logits = torch.randn(1, n, n, dtype=torch.float64, requires_grad=True)
@@ -190,6 +241,7 @@ def test_real_data_is_finite_and_trains(cfg, real_T):
     T, log_y = real_T
     model = TMVAE(TMVAEConfig(**{**cfg, "n_nodes": T.shape[-1]}))
     model.config.n_nodes = T.shape[-1]
+    model.fit_input_stats(T)
     opt = torch.optim.Adam(model.parameters(), lr=1e-3)
 
     first = last = None

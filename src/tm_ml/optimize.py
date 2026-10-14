@@ -1,15 +1,17 @@
-"""Climb the predicted decay exponent in latent space, one graph at a time, with BFGS.
+"""Push the predicted effective population up or down in latent space, one graph at a time, with BFGS.
 
-    pixi run -e ml python -m tm_ml.optimize --run <run> --lam 0 0.3 1 3
+    pixi run -e ml python -m tm_ml.optimize --run <run> --lam 0 0.3 1 3 [--minimize]
 
 Starts from a test graph's posterior mean x₀ and minimizes
 
-    f(x) = −log ŷ(x) + (λ/2)·‖x − x₀‖²
+    f(x) = −s·log ŷ(x) + (λ/2)·‖x − x₀‖²
 
-over x, the 20 × d_latent node latent flattened with the global appended. The
-penalty asks for the best graph near this one, so each start keeps its own
-path. λ = 0 is the unregularized run, where nothing stops the predictor
-extrapolating.
+over x, the 20 × d_latent node latent flattened with the global appended.
+The sense s is +1 to maximize ŷ and −1 to minimize it; flipping it flips
+only the predictor term, so λ keeps its units, e-folds of ŷ, and one λ means
+the same in both directions. The penalty asks for the best graph near this
+one, so each start keeps its own path. λ = 0 is the unregularized run, where
+nothing stops the predictor extrapolating.
 
 The penalty is anchored at the start rather than at the origin on purpose.
 (λ/2)·‖x‖², the VAE prior, outweighed the whole data range of log ŷ about
@@ -37,7 +39,7 @@ N_GRAPHS = 3
 
 
 @dataclass
-class Ascent:
+class Search:
     """One BFGS path, every accepted iterate from the start to the exit.
 
     ``z`` is ``(k, n_nodes, d_latent)`` and ``z_global`` ``(k, d_global)``, with
@@ -51,6 +53,7 @@ class Ascent:
     f: np.ndarray
     grad_norm: np.ndarray
     lam: float
+    sense: int
     nit: int
     nfev: int
     message: str
@@ -66,12 +69,13 @@ def float64_copy(model):
     return copy.deepcopy(model).double().cpu().eval()
 
 
-def objective(model64, scaler, n_nodes, d_latent, lam, anchor):
+def objective(model64, scaler, n_nodes, d_latent, lam, anchor, sense=1):
     """``x -> (f, ∇f)`` in float64 numpy, the form ``minimize(jac=True)`` takes.
 
     The predictor emits standardized log y; undoing the scaler is monotone, so
-    it moves no optimum, but it puts f in e-folds of the decay exponent, which
-    is what gives λ units. ``anchor`` is x₀, where the penalty is zero.
+    it moves no optimum, but it puts f in e-folds of the effective population, which
+    is what gives λ units. ``anchor`` is x₀, where the penalty is zero;
+    ``sense`` is +1 to maximize ŷ, −1 to minimize it.
     """
     anchor = torch.as_tensor(anchor, dtype=torch.float64)
     split = n_nodes * d_latent
@@ -81,25 +85,28 @@ def objective(model64, scaler, n_nodes, d_latent, lam, anchor):
         z = x[:split].reshape(1, n_nodes, d_latent)
         z_global = x[split:].reshape(1, -1)
         log_y_hat = model64.predict(z, z_global)[0] * scaler.std + scaler.mean
-        value = -log_y_hat + 0.5 * lam * (x - anchor).pow(2).sum()
+        value = -sense * log_y_hat + 0.5 * lam * (x - anchor).pow(2).sum()
         (grad,) = torch.autograd.grad(value, x)
         return value.item(), grad.numpy()
 
     return f
 
 
-def ascend(model, scaler, mu, mu_global, lam, maxiter=200, gtol=1e-5):
-    """BFGS from one graph's encoding ``(mu, mu_global)``, both numpy, unbatched."""
+def search(model, scaler, mu, mu_global, lam, sense=1, maxiter=200, gtol=1e-5):
+    """BFGS from one graph's encoding ``(mu, mu_global)``, both numpy, unbatched.
+
+    ``sense`` is +1 to maximize the predicted effective population, −1 to minimize it.
+    """
     n_nodes, d_latent = mu.shape
     model64 = float64_copy(model)
     x0 = np.concatenate([mu.ravel(), mu_global.ravel()]).astype(np.float64)
-    fun = objective(model64, scaler, n_nodes, d_latent, lam, x0)
+    fun = objective(model64, scaler, n_nodes, d_latent, lam, x0, sense)
     path = [x0]
     result = minimize(fun, x0, jac=True, method="BFGS", callback=lambda xk: path.append(xk.copy()),
                       options={"maxiter": maxiter, "gtol": gtol})
     path = np.stack(path)
     message = result.message
-    # Unregularized, far enough out the predictor is linear in x, f has a
+    # Unregularized, in either sense, far enough out the predictor is linear in x, f has a
     # constant slope, and each step doubles ‖x‖ until float64 overflows. The
     # overflowed iterate is not a latent anything can decode, so it is cut.
     finite = np.isfinite(path).all(1)
@@ -113,13 +120,14 @@ def ascend(model, scaler, mu, mu_global, lam, maxiter=200, gtol=1e-5):
     values = np.array(values)
     penalty = 0.5 * lam * ((path - x0) ** 2).sum(1)
     split = n_nodes * d_latent
-    return Ascent(
+    return Search(
         z=path[:, :split].reshape(-1, n_nodes, d_latent),
         z_global=path[:, split:],
-        log_y_hat=penalty - values,
+        log_y_hat=sense * (penalty - values),
         f=values,
         grad_norm=np.linalg.norm(np.stack(grads), axis=1),
         lam=lam,
+        sense=sense,
         nit=result.nit,
         nfev=result.nfev,
         message=message,
@@ -127,25 +135,31 @@ def ascend(model, scaler, mu, mu_global, lam, maxiter=200, gtol=1e-5):
     )
 
 
-def report(ascent, graph, true_decay):
+def report(search, graph, true_decay):
     """The path as a table, then how it ended and what H⁻¹ looks like."""
-    x = np.concatenate([ascent.z.reshape(len(ascent.z), -1), ascent.z_global], axis=1)
+    x = np.concatenate([search.z.reshape(len(search.z), -1), search.z_global], axis=1)
     moved = np.linalg.norm(x - x[0], axis=1)
     norm = np.linalg.norm(x, axis=1)
-    print(f"\ntest graph {graph}, true decay exponent {true_decay:.1f}, λ = {ascent.lam:g}")
+    direction = "maximizing" if search.sense > 0 else "minimizing"
+    print(f"\ntest graph {graph}, true effective population {true_decay:.1f}, {direction}, "
+          f"λ = {search.lam:g}")
     print(f"  {'iter':>4}  {'ŷ':>10}  {'log ŷ':>7}  {'f':>9}  {'‖x‖':>7}  "
           f"{'‖x − x₀‖':>9}  {'‖∇f‖':>9}")
     for k in range(len(x)):
-        print(f"  {k:>4}  {np.exp(ascent.log_y_hat[k]):>10.1f}  {ascent.log_y_hat[k]:>7.3f}  "
-              f"{ascent.f[k]:>9.4f}  {norm[k]:>7.3f}  {moved[k]:>9.3f}  "
-              f"{ascent.grad_norm[k]:>9.2e}")
+        print(f"  {k:>4}  {np.exp(search.log_y_hat[k]):>10.1f}  {search.log_y_hat[k]:>7.3f}  "
+              f"{search.f[k]:>9.4f}  {norm[k]:>7.3f}  {moved[k]:>9.3f}  "
+              f"{search.grad_norm[k]:>9.2e}")
 
+    print(f"  exit after {search.nit} iterations, {search.nfev} evaluations: {search.message}")
+    # A run that overflowed leaves the estimate non-finite too, with nothing to read.
+    if not np.isfinite(search.hess_inv).all():
+        print("  H⁻¹ estimate: not finite, the run overflowed")
+        return
     # B0 = I, and each iteration's rank-two update reshapes it along the one
     # new direction it stepped in, so eigenvalues still at 1 are directions
     # BFGS never learned anything about.
-    eigenvalues = np.linalg.eigvalsh(ascent.hess_inv)
+    eigenvalues = np.linalg.eigvalsh(search.hess_inv)
     learned = int((np.abs(eigenvalues - 1.0) > 1e-3).sum())
-    print(f"  exit after {ascent.nit} iterations, {ascent.nfev} evaluations: {ascent.message}")
     print(f"  H⁻¹ estimate: eigenvalues {eigenvalues.min():.3g} .. {eigenvalues.max():.3g}, "
           f"{learned} of {len(eigenvalues)} moved off 1")
 
@@ -160,6 +174,8 @@ def main():
                         help="penalty weights λ on ‖x − x₀‖²; each is run on every graph")
     parser.add_argument("--graphs", type=int, default=N_GRAPHS,
                         help="how many test graphs, from the first")
+    parser.add_argument("--minimize", action="store_true",
+                        help="drive the predicted effective population down instead of up")
     parser.add_argument("--maxiter", type=int, default=200)
     args = parser.parse_args()
 
@@ -171,7 +187,8 @@ def main():
 
     for graph in range(min(args.graphs, len(mu))):
         for lam in args.lam:
-            report(ascend(model, scaler, mu[graph], mu_global[graph], lam, args.maxiter),
+            report(search(model, scaler, mu[graph], mu_global[graph], lam,
+                          -1 if args.minimize else 1, args.maxiter),
                    graph, true[graph])
 
 

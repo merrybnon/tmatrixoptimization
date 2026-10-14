@@ -28,8 +28,9 @@ import re
 from tm_ml.config import expand_sweep
 from tm_ml.ingest import RAW_DIR, find_source
 from tm_ml.architecture import RENDERED as ARCH_SVG, SOURCE as ARCH_SOURCE
-from tm_ml.paths import (DIAGNOSTIC_FIGURES, FIGURES, INTERPOLATIONS, OPTIMIZATIONS,
-                         TRAVERSAL_AXES, TRAVERSALS, run_path)
+from tm_ml.paths import (DIAGNOSTIC_FIGURES, FIGURES, INTERACTIVE_FIGURES, INTERPOLATIONS,
+                         OPTIMIZATION, OPTIMIZATION_SPATIAL, OPTIMIZATIONS, PATH_VIEWS, TRAVERSAL_AXES, TRAVERSALS,
+                         run_path)
 
 ALL_DROPS = sorted(p.name for p in RAW_DIR.iterdir() if p.is_dir())
 
@@ -50,8 +51,17 @@ SHARED_SRC = [f"{PKG}/{name}" for name in
 BENCHMARKS_CSV = "docs/benchmarks/runs.csv"
 # Every figure visualize writes, relative to a run directory.
 FIGURE_FILES = [f"{FIGURES}/{name}.png" for name in DIAGNOSTIC_FIGURES] + [
-    f"{FIGURES}/{TRAVERSALS}/traversal_{axis}.png" for axis in TRAVERSAL_AXES
-] + [f"{FIGURES}/{TRAVERSALS}/{name}.png" for name in INTERPOLATIONS + OPTIMIZATIONS]
+    f"{FIGURES}/{name}.html" for name in INTERACTIVE_FIGURES
+] + [
+    f"{FIGURES}/{TRAVERSALS}/traversal_{axis}{view}.png"
+    for axis in TRAVERSAL_AXES for view in PATH_VIEWS
+] + [
+    f"{FIGURES}/{TRAVERSALS}/{name}{view}.png" for name in INTERPOLATIONS for view in PATH_VIEWS
+] + [
+    f"{FIGURES}/{OPTIMIZATION}/{name}.png" for name in OPTIMIZATIONS
+] + [
+    f"{FIGURES}/{OPTIMIZATION}/{OPTIMIZATION_SPATIAL}/{name}.png" for name in OPTIMIZATIONS
+]
 ARCHITECTURE_FILES = [f"{FIGURES}/{ARCH_SOURCE}", f"{FIGURES}/{ARCH_SVG}"]
 
 
@@ -165,7 +175,9 @@ rule visualize:
         # this after evaluate — a real dependency rather than a directive.
         metrics="results/{run}/metrics.json",
         data=run_data,
-        src=[f"{PKG}/visualize.py", f"{PKG}/evaluate.py", f"{PKG}/optimize.py"] + SHARED_SRC,
+        src=[f"{PKG}/{name}" for name in
+             ("visualize.py", "evaluate.py", "optimize.py", "landscape.py", "style.py")]
+            + SHARED_SRC,
     output:
         expand("results/{{run}}/{figure}", figure=FIGURE_FILES),
     log:

@@ -31,6 +31,11 @@ class TMVAEConfig:
     pair_hidden: int = 128
     predictor_hidden: int = 64
     pooling: str = "deepsets"
+    # How the raw node and edge features are normalized before their first
+    # Linear: "layernorm" per vector, or "fixed" per feature against constants
+    # fitted on the training split. See `Standardize`.
+    node_norm: str = "layernorm"
+    edge_norm: str = "layernorm"
     dropout: float = 0.0
     log_eps: float = 1e-20
     beta: float = 1.0
@@ -137,6 +142,51 @@ def edge_features(T, log_eps):
     )
 
 
+INPUT_NORMS = ("layernorm", "fixed")
+
+
+class Standardize(nn.Module):
+    """Per-feature ``(x - mean) / std`` against constants fitted once on data.
+
+    The alternative to a LayerNorm on the raw features. LayerNorm normalizes
+    each vector against its own mean and spread, which for the edge features is
+    nearly scale-invariant in the two logs: a symmetric pair at 1e-2 and one at
+    1e-8 normalize to within 0.003 of each other. Here each feature is measured
+    against how that feature varies over the training set, so magnitude
+    survives and the map is a fixed affine that destroys nothing.
+
+    The constants are buffers, so they ride in the state dict and every stage
+    that loads a checkpoint gets them. They start as nan: a model that was never
+    fitted produces nan everywhere, which the first-step check in `train.py`
+    reports, rather than quietly running as the identity.
+    """
+
+    def __init__(self, n_features):
+        super().__init__()
+        self.register_buffer("mean", torch.full((n_features,), float("nan")))
+        self.register_buffer("std", torch.full((n_features,), float("nan")))
+
+    @torch.no_grad()
+    def fit(self, x):
+        """Fit on ``(N, n_features)`` samples. Constant features pass through."""
+        x = x.double()
+        mean, std = x.mean(0), x.std(0)
+        constant = std < 1e-12
+        self.mean.copy_(torch.where(constant, 0.0, mean))
+        self.std.copy_(torch.where(constant, 1.0, std))
+
+    def forward(self, x):
+        return (x - self.mean) / self.std
+
+
+def input_norm(kind, n_features):
+    if kind == "layernorm":
+        return nn.LayerNorm(n_features)
+    if kind == "fixed":
+        return Standardize(n_features)
+    raise ValueError(f"unknown input norm {kind!r}; expected one of {list(INPUT_NORMS)}")
+
+
 class EdgeBias(nn.Module):
     """Edge features to one additive attention bias per head: ``(B, H, n, n)``.
 
@@ -150,21 +200,33 @@ class EdgeBias(nn.Module):
     condition only the attention weight. Cheaper, and it keeps
     ``scaled_dot_product_attention`` usable. Revisit if reconstruction stalls.
 
-    The LayerNorm is doing real work: the raw features mix probabilities in
-    [0, 1] with logs down at -46.
+    The input norm is doing real work: the raw features mix probabilities in
+    [0, 1] with logs down at -46. Under ``edge_norm = "fixed"`` the constants
+    are fitted on off-diagonal pairs only, and the diagonal's four value
+    features are then set to 0, the fitted mean: its log T_ii is the clamp's
+    -46, which would otherwise sit ~15 sd out, and is_self already says the
+    pair is special.
     """
 
     def __init__(self, config):
         super().__init__()
+        self.fixed = config.edge_norm == "fixed"
         self.net = nn.Sequential(
-            nn.LayerNorm(N_EDGE_FEATURES),
+            input_norm(config.edge_norm, N_EDGE_FEATURES),
             nn.Linear(N_EDGE_FEATURES, config.edge_hidden),
             nn.GELU(),
             nn.Linear(config.edge_hidden, config.n_heads),
         )
 
     def forward(self, e):
-        return self.net(e).permute(0, 3, 1, 2)
+        if not self.fixed:
+            return self.net(e).permute(0, 3, 1, 2)
+        x = self.net[0](e)
+        diagonal = ~off_diagonal(e.shape[1], e.device)
+        # Every feature but the last, is_self, on the diagonal pairs.
+        values = torch.arange(N_EDGE_FEATURES, device=e.device) < N_EDGE_FEATURES - 1
+        x = x.masked_fill(diagonal[:, :, None] & values, 0.0)
+        return self.net[1:](x).permute(0, 3, 1, 2)
 
 
 class EdgeBiasedAttention(nn.Module):
@@ -306,7 +368,8 @@ class TMVAE(nn.Module):
         cfg = self.config
 
         self.node_in = nn.Sequential(
-            nn.LayerNorm(N_NODE_FEATURES), nn.Linear(N_NODE_FEATURES, cfg.d_model)
+            input_norm(cfg.node_norm, N_NODE_FEATURES),
+            nn.Linear(N_NODE_FEATURES, cfg.d_model),
         )
         self.edge_in = EdgeBias(cfg)
         self.encoder = nn.ModuleList(
@@ -346,6 +409,20 @@ class TMVAE(nn.Module):
             nn.GELU(),
             nn.Linear(cfg.predictor_hidden, 1),
         )
+
+    @torch.no_grad()
+    def fit_input_stats(self, T):
+        """Fit any `Standardize` input norms on training matrices ``(N, n, n)``.
+
+        A no-op under LayerNorm. The caller passes the training split alone, as
+        with the target scaler, so no val or test statistics leak in.
+        """
+        eps = self.config.log_eps
+        if isinstance(self.node_in[0], Standardize):
+            self.node_in[0].fit(node_features(T, eps).reshape(-1, N_NODE_FEATURES))
+        if self.edge_in.fixed:
+            e = edge_features(T, eps)[:, off_diagonal(T.shape[-1], T.device)]
+            self.edge_in.net[0].fit(e.reshape(-1, N_EDGE_FEATURES))
 
     def encode(self, T):
         """``T`` to per-node posteriors, plus the graph-level one if enabled."""
@@ -415,7 +492,7 @@ class TMVAE(nn.Module):
         Sum being the expressive choice is an argument about multisets of
         varying size.
 
-        Emits log(decay exponent), not the exponent: the target runs 48.8 to
+        Emits log(effective population), not the value itself: the target runs 48.8 to
         2041.6 and is right-skewed. The log is the caller's to take.
         """
         return self.predictor(torch.cat([self.pool(z), z_global], dim=-1)).squeeze(-1)

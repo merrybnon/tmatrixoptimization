@@ -34,7 +34,8 @@ from tm_ml import paths
 COLUMNS = (
     "run", "model", "drop",
     # what was varied
-    "d_latent", "d_global", "pooling", "beta", "gamma", "beta_warmup_epochs",
+    "d_latent", "d_global", "pooling", "node_norm", "edge_norm", "beta", "gamma",
+    "beta_warmup_epochs",
     "gamma_warmup_epochs", "lambda_log", "lambda_log_warmup_epochs",
     "lambda_recon", "lambda_recon_warmup_epochs",
     "dropout", "weight_decay", "lr", "lr_schedule", "epochs", "seed",

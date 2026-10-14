@@ -364,7 +364,7 @@ The same thing in every run, correlations over the 1000 graphs with each run's s
 | std over nodes of min log outflow | −0.77 … −0.88 |
 | std over nodes of log stationary π | −0.76 … −0.86 |
 | mean over nodes of log stationary π | +0.72 … +0.84 |
-| log decay exponent | +0.63 … +0.85 |
+| log effective population | +0.63 … +0.85 |
 | log relaxation time from abs(λ₂) | −0.69 … −0.80 |
 | mean inflow | ≈ 0 |
 
@@ -382,7 +382,7 @@ One trap for reading the figures: a collapsed global still has a posterior mean 
 
 ## 2026-09-23 — latent traversals
 
-Figures now live in `results/<run>/figures/`, and `visualize` adds three traversals in `figures/interpolation_and_traversals/`: the highest-rate global dimension and sorted-160 PC1 and PC2. Each is 3 test graphs × 7 steps, t ∈ {−3 … +3}·σ from the graph's own encoding, where σ is the spread of the axis coordinate over the 100 test graphs. The centre column is the reconstruction, and every matrix carries its predicted decay exponent. A PC or latent dimension has no natural sign, so each axis is oriented so that +t raises log y across the test graphs.
+Figures now live in `results/<run>/figures/`, and `visualize` adds three traversals in `figures/interpolation_and_traversals/`: the highest-rate global dimension and sorted-160 PC1 and PC2. Each is 3 test graphs × 7 steps, t ∈ {−3 … +3}·σ from the graph's own encoding, where σ is the spread of the axis coordinate over the 100 test graphs. The centre column is the reconstruction, and every matrix carries its predicted effective population. A PC or latent dimension has no natural sign, so each axis is oriented so that +t raises log y across the test graphs.
 
 PC1 and PC2 are sorted-160 rather than raw-160 because node labels are arbitrary. Over exchangeable slots the raw covariance has only two kinds of eigenvector: a uniform shift, which is just the graph-mean PCs broadcast to every node, and slot contrasts, each degenerate 19-fold in expectation, so which one comes out is sampling noise. A step along a sorted PC is decoded by shifting the sorted values and putting each rank back on the node that held it.
 
@@ -404,7 +404,7 @@ On the dg1 seed-1 run matching roughly halves the mean paired node distance (2.8
 
 **Unregularized, the ascent runs away.** Far from the data the GELU predictor is linear in x, so f = −log ŷ has a constant slope and no bottom. Each BFGS step doubles ‖x‖. The line search ends in "precision loss" within 2–22 iterations, the H⁻¹ estimate picks up negative eigenvalues, and on dg4 seed 0 the 51st iterate overflowed float64. Paths are now cut at the first non-finite iterate. The endpoints decode to flattened matrices, with max/min between 1.7× and 10⁴× against about 10¹⁰ in the data, but not to the uniform matrix.
 
-**Prior penalty, f = −log ŷ + (λ/2)·‖x‖².** At λ = 1 all 36 paths (12 runs × 3 graphs) end at the same point, which decodes to exactly the uniform matrix. This is not an optimum of the decay exponent, and ŷ there is only 281; graph 2 went down, from 649. Two things produce it:
+**Prior penalty, f = −log ŷ + (λ/2)·‖x‖².** At λ = 1 all 36 paths (12 runs × 3 graphs) end at the same point, which decodes to exactly the uniform matrix. This is not an optimum of the effective population, and ŷ there is only 281; graph 2 went down, from 649. Two things produce it:
 
 - The penalty is about 40 nats at the start, and the whole data range of log ŷ spans only 3.7, so BFGS mostly shrinks x.
 - The cheapest way to shrink x is to make the 20 node latents identical: their spread falls to about 1e-8, against 0.50–0.69 for test graphs. With identical nodes, the equivariant decoder cannot tell them apart and must emit the uniform matrix.
@@ -463,10 +463,10 @@ Two hand-built matrices through the dg1 seed-1 run (`global_latent/TMVAE_b0p01-b
 
 **Uniform** comes back exactly, and ŷ sits just above the largest training target, 2041.6.
 
-**Paired cannot be reconstructed by this architecture.** Every node of the paired matrix is equivalent under relabelling, so the equivariant encoder gives all 20 the same μ, with a spread across nodes of about 1e-6. As in the optimization's node collapse, identical node latents make the pair decoder emit the uniform matrix. The encoder still tells the two inputs apart: node μ differs by 1.8 between them, and the global μ is 3.69 against 1.46. That difference is what gives them different ŷ even though both decode to uniform. ŷ = 563 cannot reflect the pairing itself, because no node latent records which node is whose partner. It is also extrapolation, since a strictly paired chain is periodic and reducible, and its true decay exponent at small ε is likely far outside the training range.
+**Paired cannot be reconstructed by this architecture.** Every node of the paired matrix is equivalent under relabelling, so the equivariant encoder gives all 20 the same μ, with a spread across nodes of about 1e-6. As in the optimization's node collapse, identical node latents make the pair decoder emit the uniform matrix. The encoder still tells the two inputs apart: node μ differs by 1.8 between them, and the global μ is 3.69 against 1.46. That difference is what gives them different ŷ even though both decode to uniform. ŷ = 563 cannot reflect the pairing itself, because no node latent records which node is whose partner. It is also extrapolation, since a strictly paired chain is periodic and reducible, and its true effective population at small ε is likely far outside the training range.
 
 ### Next steps
-- Try minimizing the decay exponent in the latent optimization instead of maximizing it.
+- Try minimizing the effective population in the latent optimization instead of maximizing it.
 
 ## 2026-09-23 — architecture diagrams, and every sweep re-evaluated
 
@@ -497,3 +497,112 @@ Re-evaluation is deterministic, as expected: across the 89 ledger rows no metric
 - Draw diagrams for the 24 runs outside the current sweeps, if they are still of interest, with `pixi run -e ml architecture --run <run>`.
 - `architecture.md`'s sources table still credits Gilmer and Simonovsky & Komodakis for edge-conditioned messages, which the code does not have: edges enter only through the attention bias.
 - The SVG render depends on npx fetching mermaid-cli and a headless Chrome, so a fresh machine needs network access the first time.
+
+## 2026-09-24 — minimizing the effective population
+
+Flipped the sign on log ŷ and lowered the regularized λ to 0.1, both directions, dg1 seed-1 run. Converged ŷ per test graph (true in brackets), minimize and maximize: g0 (82) 23 and 3.1e5, g1 (224) 36 and 416, g2 (545) 71 and 2.7e5. The descents leave the test cloud, and the 1e5 ascents are far past any test graph, so read both as partly extrapolation. Unregularized, the minimize paths run away like the ascents; g2 reaches ‖x‖ ≈ 1e153, where the decoder returns NaN.
+
+## 2026-09-24 — the predicted effective population as a 3D surface
+
+`latent_property_3D` draws ŷ over the highest-rate global dim and sorted-160 PC1 as a partial dependence: each grid point set in all 100 test graphs, everything else kept, ŷ averaged over the test graphs. PC1 replaced the top property node dim, which would have needed one value spread over 20 nodes. On the dg1 seed-0 run, over ±4 global and ±7 PC1, log ŷ rises mostly along PC1 and flattens outside the test cloud in both directions, so the predictor saturates rather than extrapolating linearly along these two axes. Test graphs sit an RMS 0.43 in log y from the surface against a std of 0.63 about their mean, both over the test graphs: the two axes carry part of the variation, and the averaged-out coordinates still move single graphs a lot. The PNG hides points behind the surface, hence the plotly page.
+
+## 2026-09-24 — no interior extrema of ŷ in the data's range
+
+Searched the dg1 seed-0 run's 161-dim latent (20 × 8 node dims plus the global) for local minima or maxima of log ŷ inside the data's range, taken as a box: each latent dim bounded by its min and max over every node of every graph, the global by its own range, −1.85 to 2.47, over all 1000 encoded graphs. That box is looser than the data, which only strengthens a negative result. The scripts were one-off, not added to the repo. There are none:
+
+- **Bounded ascent and descent.** L-BFGS-B on log ŷ from each of the 1000 encodings, both senses, confined to the box. All 2000 runs ended against the box with at least 107 of 161 coordinates at a bound, none inside it. The global went to its upper bound on every ascent and its lower bound on every descent. The box corners are far outside the data: ŷ ≈ 2e7 to 6e7 maximizing, 1 to 45 minimizing, against targets of 48.8 to 2041.6.
+- **Slope along the global.** ∂ log ŷ/∂g is positive at all 1000 encodings (min 0.052) and at 100k random convex mixes of 2 or 5 of them (min 0.055 and 0.168). ‖∇ log ŷ‖ is at least 0.074 over the same points, so none is a critical point of any kind.
+- **Per graph.** Holding each graph's node latents fixed and sweeping g over its full range at 400 steps, the slope stays positive except at one step for one graph: graph 506 at g = −1.846, the bottom of the range and below the 1st percentile of g (−1.31), where it is −0.0003.
+- **Direct search for flat points.** Minimizing ‖∇ log ŷ‖² from each encoding, the flattest points found have ‖∇‖ ≈ 1e-3, not zero, with about 100 or more coordinates pinned at the box. They sit 25 to 28 from the nearest graph in the sorted descriptor, where graphs are a median 2.7 and at most 4.1 from their nearest neighbour.
+
+Within the data the predictor is monotone along the global, with no interior peak or valley. Every optimum is set by where the search is stopped, the box here or λ in `optimize.py`, which is why unregularized BFGS runs away in both senses. This agrees with `latent_property_3D`, which rises along PC1 and flattens outside the test cloud with no bump inside. The random mixes do not align nodes, so they sample the cloud as it is rather than morphs between graphs.
+
+## 2026-09-28 — landscapes recovered from T, and a figure pass
+
+Picked the dg1 seed-1 run as the reference for figures: best of the non-collapsed runs bar dg2 seed 1, which leads by less than the seed spread and carries a dead global dimension. The seed axis is the split, so ranking across seeds is mostly ranking splits.
+
+`docs/notes/2026-9-11 The ML Problem.pptx` gives the generator: 20 uniform points in a unit square, W_ij = D_ij⁻⁴ off the diagonal, rows normalized. Symmetric weights give detailed balance with π_i ∝ Σ_k W_ik, so π_i·T_ij ∝ W_ij and D_ij ∝ (π_i·T_ij)^(−1/4); classical MDS returns the points. Over all 1000 raw matrices it is exact: detailed-balance asymmetry ≤ 5e-15, third MDS eigenvalue over the first ≤ 7e-7, distance misfit ≤ 2e-6. T fixes the layout up to translation, rotation, reflection and scale; the figures stretch the smallest enclosing square to side 1, about 10% wider than generated, and align a reconstruction onto its input by Procrustes on the shared node labels, without a fitted scale, which shrinks toward zero as the match worsens.
+
+No decoded matrix is a landscape. The non-planar share of the MDS spectrum is 7.7e-8 median over the 100 test T, and 0.167 median (5–95% 0.12–0.25) over their reconstructions, dg1 seed 1. Along the traversals and interpolations it stays 0.16–0.42, and moving through the latent changes it by hundredths. The one excursion is the global traversal of test example 1, 0.42 at −3σ down to 0.16 at +3σ; interpolation midpoints on two of three pairs reach 0.33–0.34. Detailed balance nearly holds throughout (asymmetry ≤ 0.014), so the decoder learns reversibility but not planarity. Spatially, +t along the global spreads the nodes more evenly as ŷ rises, the landscape reading of "evens out the rows".
+
+Settled a colour split: transition matrices blue, the effective population green, signed error red/blue. Grey and purple were tried for the matrices and dropped.
+
+## 2026-09-28 — the aggregate posterior against the prior
+
+`latent_diagnostics.py` estimates KL(q(z) ‖ p(z)) and KL(p(z) ‖ q(z)) against the exact mixture q(z), not the Gaussian moment-match in `metrics.json`. On the dg1 seed-1 run, train split, node latents pooled over graphs and nodes: each node dimension has mean ≈ 0 and variance ≈ 1, yet KL(q ‖ p) is 1.35 nats against a moment-matched 0.03, and 46% of N(0, I) samples land where q/p < 0.1. The global is centred at 0.48 with variance 0.51 and σ ≈ 0.04 per graph. So the per-example KL, 9.0 of whose 10.4 nats are mutual information, matches scale but not shape, and sampling the prior mostly misses the region the decoder was trained on.
+
+## 2026-09-28 — fixed standardization of the input features
+
+The per-pair LayerNorm on the five edge features is nearly scale-invariant in the two logs: a symmetric pair at 1e-2 and one at 1e-8 normalize to within 0.003 of each other, and the diagonal lands beside them with is_self drowned. `node_norm` and `edge_norm` now take `fixed`, per-feature standardization against constants fitted on the training split, off-diagonal pairs only for edges, with the diagonal's four value features set to 0 after. `config/sweeps/input_norm.yaml` crosses the two at the dg1 settings of `global_dims.yaml`, three seeds, 12 runs in 34 min on two cards. The layernorm × layernorm control retrained bit-identically to the `global_latent` dg1 runs, same best epoch and val score on every seed.
+
+Mean ± sd over the three seeds, each seed its own split, test split:
+
+| node / edge | R² | recon | log_recon | weakest-decile log err | KL node | KL global | max\|r\| b ~ log T |
+|---|---|---|---|---|---|---|---|
+| layernorm / layernorm | 0.782 ± 0.059 | 0.827 ± 0.074 | 0.423 ± 0.012 | 0.533 ± 0.044 | 207.7 | 2.90 ± 0.22 | 0.45 |
+| fixed / layernorm | 0.817 ± 0.061 | 0.690 ± 0.138 | 0.373 ± 0.025 | 0.500 ± 0.049 | 218.6 | 1.07 ± 1.47 | 0.45 |
+| layernorm / fixed | 0.772 ± 0.055 | 0.266 ± 0.067 | 0.181 ± 0.011 | 0.272 ± 0.020 | 183.2 | 3.01 ± 0.18 | 0.96 |
+| fixed / fixed | 0.781 ± 0.051 | 0.252 ± 0.075 | 0.176 ± 0.014 | 0.294 ± 0.020 | 183.4 | 1.03 ± 1.68 | 0.99 |
+
+The last column is the max over the 8 heads of |corr(b_ij, log T_ij)| over test off-diagonal pairs with T_ij < 1e-3, per run, then averaged over seeds.
+
+### Edge norm: reconstruction 3× better on fewer nats
+
+Fixed edges cut recon 3.1× and log_recon 2.3× and halve the weakest-decile log error, on every seed, while the node KL falls by 25 nats. The mechanism is the one predicted: within the small-entry regime the attention bias goes from |r| 0.45 with log T to 0.96, so magnitude that LayerNorm hid now reaches the encoder through the bias, and the latent no longer has to pay to carry it. R² does not move: paired by seed, −0.006, −0.009, −0.016. Whatever limits the property is not the reconstruction.
+
+### Node norm: a small R² gain, and the global goes
+
+Fixed nodes with LayerNorm edges raise R² on all three seeds, +0.032, +0.029, +0.043 paired, which is under one seed sd of the cell mean, so it is suggestive and not settled. The global slot collapses in two of three seeds (0.02 and 0.44 nats against ≈ 3 for the control), and in two of three of fixed / fixed as well. The global's axis in `global_dims` was node heterogeneity, and a per-node LayerNorm on the node features removes each node's absolute level of entropy and flow, which is what evenness is made of. With that level kept, the node latents can plausibly carry the graph-level signal themselves and the global becomes redundant. Untested; the probe from 09-22 (graph-mean node latents → log y) would check it. Combined with fixed edges the R² gain does not survive: +0.017, +0.011, −0.034.
+
+### Next steps
+- Make `edge_norm: fixed` the setting for subsequent sweeps. It is the largest reconstruction gain on record and costs nothing on the property.
+- More seeds on `node_norm` before adopting it, and the graph-mean probe to see whether the global collapse is relocation, as on 09-22, or loss.
+
+## 2026-09-30 — the property weight γ, and how much room prediction has
+
+Started from the property overfit in the fixed-edge `input_norm` runs: train prop, standardized MSE so ≈ 1 − R², falls steadily to about 0.07 by epoch 600, while val prop flattens at 0.15–0.25 somewhere between epochs 190 and 480. The history logs train prop under dropout and a sampled z, so the eval-mode train fit is tighter still. Checkpoint selection barely sees it: prop is about 0.2 of a ~2.7 `val_score`, so the kept epoch is chosen by reconstruction.
+
+### A feature baseline matches the VAE
+
+One-off, not added to the repo. A `HistGradientBoostingRegressor` on about 30 invariant features of T, trained on train + val (900 graphs) of each seed's split and scored on its test split, mean ± sd over seeds 0, 1, 2:
+
+| features | ridge R² | GBM R² |
+|---|---|---|
+| −log(1 − λ) for λ₂, λ₃, and −log(1 + λ_min) | 0.235 ± 0.035 | 0.189 ± 0.153 |
+| the 19 nontrivial eigenvalues | 0.284 ± 0.059 | 0.309 ± 0.091 |
+| row-entropy and log₁₀-entry statistics | 0.482 ± 0.095 | 0.650 ± 0.054 |
+| eigenvalues + entropy + stationary distribution | 0.759 ± 0.031 | **0.826 ± 0.023** |
+
+The chain is reversible, so the spectrum is real. The relaxation time alone correlates only −0.33 with log y across the 1000 matrices, so the target is not the spectral gap. The fixed-edge VAE at γ = 1 sits at 0.772 ± 0.055: the latent was not yet beating hand-picked features.
+
+The same GBM trained on linear y instead of log y is worse on every metric, including R² on linear y (0.756 ± 0.020 against 0.799 ± 0.014 for the log-trained model exponentiated). Squared error on linear y is dominated by the few graphs above ~1000, so it spends its capacity on a handful of examples.
+
+### The generator reproduces the drop
+
+1000 fresh draws from the stated generator, 20 uniform points in the unit square, W_ij = D_ij⁻⁴, rows normalized, match Tom1000 on every quantile checked: log₁₀ entries over all off-diagonal entries (1/50/99%: −6.45/−2.72/−0.03 against −6.50/−2.72/−0.02), min row entropy over matrices (10/50/90%: 0.002/0.044/0.250 against 0.002/0.044/0.239), −log₁₀(1 − λ₂) over matrices (1.64/2.38/3.29 against 1.66/2.33/3.31). Only the target needs Tom's simulation, so unlabeled matrices for the reconstruction and KL terms are unlimited.
+
+### γ buys R² with reconstruction
+
+`config/sweeps/gamma.yaml`, γ ∈ {3, 5, 10, 15, 30} × seeds 0, 1, 2 at the fixed-edge, layernorm-node cell of `input_norm`, whose three runs are the γ = 1 control. The `recon_ratio` sweep had already hinted at it: lowering λ_recon raises γ against reconstruction, and at λ_recon 0.25 and 0 R² rose on every seed by ~0.05. 15 runs on one card, 260–350 s of training each with other users on the card.
+
+Test split; the mean ± sd is over the three seeds, each seed its own split; the prop columns are train and val at the kept checkpoint, averaged over seeds.
+
+| γ | R², seeds 0 / 1 / 2 | ΔR² paired vs γ = 1 | mean R² | median rel err | recon | log_recon | KL | prop train / val |
+|---|---|---|---|---|---|---|---|---|
+| 1 | 0.709 / 0.813 / 0.794 | — | 0.772 ± 0.055 | 0.219 | 0.266 | 0.181 | 186 | 0.077 / 0.211 |
+| 3 | 0.780 / 0.815 / 0.835 | +0.071 / +0.002 / +0.041 | 0.810 ± 0.028 | 0.187 | 0.496 | 0.233 | 187 | 0.034 / 0.209 |
+| 5 | 0.819 / 0.845 / 0.800 | +0.110 / +0.032 / +0.006 | 0.821 ± 0.023 | 0.178 | 0.644 | 0.247 | 185 | 0.017 / 0.181 |
+| 10 | 0.786 / 0.830 / 0.820 | +0.077 / +0.016 / +0.026 | 0.812 ± 0.023 | 0.191 | 0.926 | 0.313 | 188 | 0.015 / 0.183 |
+| 15 | 0.827 / 0.841 / 0.835 | +0.118 / +0.028 / +0.041 | 0.834 ± 0.007 | 0.196 | 0.586 | 0.312 | 203 | 0.017 / 0.171 |
+| 30 | 0.826 / 0.847 / 0.856 | +0.117 / +0.034 / +0.062 | 0.843 ± 0.015 | 0.188 | 0.828 | 0.326 | 205 | 0.007 / 0.157 |
+
+- **R² rises on all 15 paired seeds**, two of them barely (+0.002, +0.006). Most of the gain is on seed 0, the hardest split, 0.709 → ~0.83; seed 1 moves 0.02–0.03. From γ = 3 up the cells sit in 0.81–0.84 and γ = 10 falls below 5, so ordering within that band is noise. Median relative error is best at γ = 5 and not monotone.
+- **Reconstruction pays.** recon 2.2–3.5× and log_recon 1.3–1.8× worse from γ = 5 up, while KL stays at 185–205 nats: the latent keeps its capacity and spends it on the property. γ = 30's recon, 0.828, is where the layernorm-edge models were.
+- **The overfit widened.** Train prop at the checkpoint falls 0.077 → 0.007 against val 0.211 → 0.157. Raising γ fits the 800 targets harder and weights selection toward the property; it does not close the gap.
+- **γ = 15–30 only match the GBM**, 0.834–0.843 against 0.826 ± 0.023, a difference inside the split spread.
+
+### Next steps
+- Pick γ between 5 and 15 as the working setting: most of the R² for a 2–3× reconstruction cost.
+- Semi-supervised batches: pair each labelled batch with a freshly generated unlabeled one that carries only recon, log_recon and KL. It targets the encoder memorizing 800 graphs, which γ widened, and may let a high γ keep reconstruction.
+- A scale on the property's gradient into the encoder, 0 meaning the head trains on a detached latent, and an EMA of the weights for evaluation, since val prop jumps 0.24 ↔ 0.45 between epochs.
+- Five seeds or 5-fold CV before ranking any of these: the split-to-split sd in R² is 0.02–0.05, the size of the gains being chased.

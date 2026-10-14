@@ -22,7 +22,7 @@ Free parameters per matrix: 20 rows × (19 positive entries − 1 sum constraint
 
 ## Permutation symmetry is structural, not learned
 
-Node labels are arbitrary: relabelling states gives the same landscape and the same decay exponent. Two ways to handle that.
+Node labels are arbitrary: relabelling states gives the same landscape and the same effective population. Two ways to handle that.
 
 **Canonicalize** — sort nodes by column sum, then use an ordinary MLP or CNN with a single flat latent. Rejected: with 86% of matrices holding two nodes whose in-flows differ by less than 0.01, an arbitrarily small change to T swaps two nodes and permutes whole rows and columns of the canonical form. That is a map with jump discontinuities scattered densely through input space, to be learned from 1000 examples, and it directly undermines the smooth latent space the optimization depends on.
 
@@ -30,7 +30,7 @@ Node labels are arbitrary: relabelling states gives the same landscape and the s
 
 - encoder: permuting T permutes the node latents identically
 - decoder: permuting node latents permutes the output identically
-- predictor: permutation *invariant*, since relabelling cannot change a decay exponent
+- predictor: permutation *invariant*, since relabelling cannot change an effective population
 
 Element-wise reconstruction loss is then well-posed with no canonicalization and no graph matching. One consequence: permutation augmentation becomes a no-op, since a permuted example produces an identically permuted output and the same loss.
 
@@ -64,7 +64,7 @@ ENCODER — L layers of edge-conditioned attention over the complete digraph
    ▼                              ▼
 DECODER                        PREDICTOR (invariant)
  few equivariant layers          pool over i: mean ‖ sum ‖ attention
- logits_ij = MLP([z_i ; z_j])    → MLP → log(decay exponent)
+ logits_ij = MLP([z_i ; z_j])    → MLP → log(effective population)
  diagonal → −inf
  row softmax
  → T̂, a valid transition matrix by construction
@@ -139,4 +139,4 @@ VAE and β-weighting: Kingma & Welling, *Auto-Encoding Variational Bayes*, ICLR 
 
 The target does not correlate with the spectral gap, so what it does depend on is currently unknown. Worth understanding before trusting the predictor, since it decides whether the model is learning the mechanism or fitting noise.
 
-Closing the optimization loop needs ground truth for matrices that have never existed, which means running the external generator on demand rather than receiving finished batches. Without that, an optimized T̂ has a predicted exponent and no way to check it.
+Closing the optimization loop needs ground truth for matrices that have never existed, which means running the external generator on demand rather than receiving finished batches. Without that, an optimized T̂ has a predicted effective population and no way to check it.

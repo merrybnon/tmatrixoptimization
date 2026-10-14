@@ -10,7 +10,7 @@ so a re-evaluation of the same checkpoint reproduces the same numbers.
 Four groups of metrics:
 
 - **the property**, which is what the project is for — R^2 and RMSE on log y,
-  RMSE and relative error back in decay-exponent units, against a train-fitted
+  RMSE and relative error back in effective-population units, against a train-fitted
   mean baseline. Only the trivial baseline for now; the strong one is the
   combinatorial edge-editing comparison in `miscSources.md`, and it is a stage
   of its own rather than a line here.
@@ -168,7 +168,7 @@ def property_metrics(data, scaler):
         "skill_vs_train_mean": 1.0 - rmse / baseline if baseline else None,
         "test_rmse_log": float(np.sqrt(((log_y_hat - log_y) ** 2).mean())),
         "test_mae_log": float(np.abs(log_y_hat - log_y).mean()),
-        # Squared error on a log is a lognormal likelihood on the exponent, so
+        # Squared error on a log is a lognormal likelihood on the effective population, so
         # relative error is the quantity the loss actually cares about.
         "test_median_relative_error": float(np.median(relative)),
         "test_rmse_exponent": float(np.sqrt(((exponent_hat - exponent) ** 2).mean())),
@@ -435,7 +435,7 @@ def report(m):
     print(
         f"  property   R2 {m['test_r2']:.3f}  skill vs train mean {m['skill_vs_train_mean']:+.1%}  "
         f"median relative error {m['test_median_relative_error']:.1%}  "
-        f"RMSE {m['test_rmse_exponent']:.1f} in exponent units"
+        f"RMSE {m['test_rmse_exponent']:.1f} in effective-population units"
     )
     print(
         f"  range      resolution {m['test_resolution_slope']:.3f} "

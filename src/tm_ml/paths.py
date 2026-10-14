@@ -71,18 +71,31 @@ METRICS = "metrics.json"
 STORED_CONFIG = "config.json"
 RESOLVED_CONFIG = "config.yaml"
 TRAIN_META = "train_meta.json"
-# Figures sit in their own folder inside the run, traversals one level deeper.
+# Figures sit in their own folder inside the run, traversals and optimization
+# paths each one level deeper.
 FIGURES = "figures"
 TRAVERSALS = "interpolation_and_traversals"
-DIAGNOSTIC_FIGURES = ("training_curve", "predictions", "reconstruction", "latent",
-                      "latent_property")
+OPTIMIZATION = "optimization"
+# The optimization figures again, one level deeper, with the decoded matrices
+# drawn as the landscapes they imply.
+OPTIMIZATION_SPATIAL = "spatial"
+DIAGNOSTIC_FIGURES = ("training_curve", "predictions", "reconstruction", "spatial_graph",
+                      "latent", "latent_property", "latent_property_3D")
+# Also written as a plotly page beside the PNG, `<name>.html`.
+INTERACTIVE_FIGURES = ("latent_property_3D",)
 TRAVERSAL_AXES = ("gbd", "PC1", "PC2")
 INTERPOLATIONS = ("interpolation",)
-# BFGS latent optimization from each of these test examples, once regularized
-# and once not; the suffix names the variant.
+# Each traversal and interpolation is drawn twice: as matrices, and with the
+# suffix as spatial graphs, the landscape each decoded matrix implies.
+SPATIAL = "_spatial"
+PATH_VIEWS = ("", SPATIAL)
+# BFGS latent optimization from each of these test examples, pushing the
+# predicted effective population up and down, each once regularized and once not; the
+# prefix names the sense and the suffix the variant.
+OPTIMIZATION_SENSES = ("maximize", "minimize")
 OPTIMIZATION_GRAPHS = (0, 1, 2)
 OPTIMIZATION_VARIANTS = ("", "_unreg")
-OPTIMIZATIONS = tuple(f"optimization_g{graph}{variant}"
+OPTIMIZATIONS = tuple(f"{sense}_g{graph}{variant}" for sense in OPTIMIZATION_SENSES
                       for graph in OPTIMIZATION_GRAPHS for variant in OPTIMIZATION_VARIANTS)
 
 # Field to name token. `model` and `drop` are excluded because they are named
@@ -112,6 +125,8 @@ ABBREV = {
     "pair_hidden": "ph",
     "predictor_hidden": "prh",
     "pooling": "p",
+    "node_norm": "nnorm",
+    "edge_norm": "enorm",
     "dropout": "do",
     "beta": "b",
     "gamma": "g",
@@ -168,6 +183,9 @@ NAME_BASELINE = {
         # 1.0 is the unweighted sum the loss used before the field existed.
         "lambda_recon": 1.0,
         "lambda_recon_warmup_epochs": 0,
+        # Added 2026-09-28. LayerNorm is what every earlier run used.
+        "node_norm": "layernorm",
+        "edge_norm": "layernorm",
     },
 }
 

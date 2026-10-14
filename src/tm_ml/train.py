@@ -185,6 +185,7 @@ def train(cfg):
 
     model_cfg = model_config(cfg, splits.n_nodes)
     model = TMVAE(model_cfg).to(device)
+    model.fit_input_stats(splits.train.tensors[0].to(device))
     optimizer = torch.optim.AdamW(
         model.parameters(), lr=cfg["lr"], weight_decay=cfg["weight_decay"]
     )
