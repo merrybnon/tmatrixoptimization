@@ -58,7 +58,6 @@ from scipy.interpolate import RegularGridInterpolator  # noqa: E402
 
 from tm_ml import evaluate as evaluate_module
 from tm_ml import optimize, paths
-from tm_ml.ingest import git_commit
 from tm_ml.models import TMVAEConfig, off_diagonal
 from tm_ml.style import (
     DIVERGING, GRID, INK, INK_SOFT, PROPERTY, PROPERTY_SOLID, SEQUENTIAL, SURFACE, THIRD,
